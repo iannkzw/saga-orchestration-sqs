@@ -1,6 +1,23 @@
+using Shared.Extensions;
+using Shared.HealthChecks;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHostedService<PaymentService.Worker>();
+var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
+builder.Services.AddSagaConnectivity(sqsServiceUrl);
+
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "PaymentService" }));
+app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
+{
+    status = "healthy",
+    service = "PaymentService",
+    connections = new
+    {
+        sqs = checks.SqsHealthy,
+        postgres = checks.PostgresHealthy
+    }
+}));
 
 app.Run();

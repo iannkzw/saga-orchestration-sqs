@@ -1,6 +1,6 @@
 # Roadmap
 
-**Current Milestone:** M1 - Infraestrutura Base
+**Current Milestone:** M2 - Saga Happy Path
 **Status:** In Progress
 
 ---
@@ -19,7 +19,7 @@
 - Init SQL para schemas do PostgreSQL
 - Health checks em todos os containers
 
-**project-skeleton** - PLANNED
+**project-skeleton** - DONE
 
 - Solution .NET com 5 projetos (OrderService, SagaOrchestrator, PaymentService, InventoryService, ShippingService) + Shared
 - Directory.Build.props e global.json configurados para .NET 10
@@ -36,11 +36,13 @@
 
 ### Features
 
-**saga-state-machine** - PLANNED
+**saga-state-machine** - DONE
 
 - Modelo de persistencia da saga (SagaId, estado atual, historico de transicoes)
 - Maquina de estados no SagaOrchestrator (Pending -> PaymentProcessing -> InventoryReserving -> ShippingScheduling -> Completed)
 - Transicoes acionadas por replies dos servicos via SQS
+- EF Core + Npgsql com SagaDbContext, EnsureCreated no startup
+- Endpoints POST /sagas e GET /sagas/{id} para teste manual
 
 **command-reply-flow** - PLANNED
 
