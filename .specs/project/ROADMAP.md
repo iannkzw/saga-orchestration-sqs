@@ -1,7 +1,7 @@
 # Roadmap
 
-**Current Milestone:** M1 - Infraestrutura Base
-**Status:** In Progress
+**Current Milestone:** M2 - Saga Happy Path
+**Status:** Not Started
 
 ---
 
@@ -19,7 +19,7 @@
 - Init SQL para schemas do PostgreSQL
 - Health checks em todos os containers
 
-**project-skeleton** - PLANNED
+**project-skeleton** - DONE
 
 - Solution .NET com 5 projetos (OrderService, SagaOrchestrator, PaymentService, InventoryService, ShippingService) + Shared
 - Directory.Build.props e global.json configurados para .NET 10

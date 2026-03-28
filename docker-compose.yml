@@ -49,8 +49,8 @@ services:
   # ---------------------------------------------------------------------------
   order-service:
     build:
-      context: ./src/OrderService
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/OrderService/Dockerfile
     container_name: saga-order-service
     ports:
       - "${ORDER_SERVICE_PORT}:8080"
@@ -78,8 +78,8 @@ services:
 
   saga-orchestrator:
     build:
-      context: ./src/SagaOrchestrator
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/SagaOrchestrator/Dockerfile
     container_name: saga-orchestrator
     ports:
       - "${SAGA_ORCHESTRATOR_PORT}:8080"
@@ -107,8 +107,8 @@ services:
 
   payment-service:
     build:
-      context: ./src/PaymentService
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/PaymentService/Dockerfile
     container_name: saga-payment-service
     ports:
       - "${PAYMENT_SERVICE_PORT}:8080"
@@ -136,8 +136,8 @@ services:
 
   inventory-service:
     build:
-      context: ./src/InventoryService
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/InventoryService/Dockerfile
     container_name: saga-inventory-service
     ports:
       - "${INVENTORY_SERVICE_PORT}:8080"
@@ -165,8 +165,8 @@ services:
 
   shipping-service:
     build:
-      context: ./src/ShippingService
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/ShippingService/Dockerfile
     container_name: saga-shipping-service
     ports:
       - "${SHIPPING_SERVICE_PORT}:8080"
