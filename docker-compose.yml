@@ -62,6 +62,7 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - SAGA_ORCHESTRATOR_URL=http://saga-orchestrator:8080
     depends_on:
       localstack:
         condition: service_healthy
