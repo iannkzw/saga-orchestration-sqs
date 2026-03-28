@@ -7,6 +7,7 @@
 - **2026-03-28:** "Multiplas sagas concorrentes" movido de out-of-scope para M5 com exemplo didatico. Adicionado doc sobre concorrencia no M4 (docs-didaticos).
 - **2026-03-28:** Feature project-skeleton implementada (T1-T8). Solution .NET com 6 projetos, Directory.Build.props, global.json, projeto Shared com contracts/replies/SqsConfig, Worker Services, smoke tests de conectividade SQS+PostgreSQL. M1 concluido.
 - **2026-03-28:** Feature saga-state-machine implementada (T1-T7). EF Core + Npgsql no SagaOrchestrator, modelo SagaInstance/SagaStateTransition, SagaStateMachine com transicoes, Worker com polling de replies, endpoints POST/GET /sagas.
+- **2026-03-28:** Feature command-reply-flow implementada (T1-T3). Workers do PaymentService, InventoryService e ShippingService fazem polling de comandos, simulam processamento e enviam replies com Success=true. Correlation via SagaId preservado.
 
 ## Blockers
 

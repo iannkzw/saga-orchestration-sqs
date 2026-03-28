@@ -1,22 +1,86 @@
+using System.Text.Json;
+using Amazon.SQS;
+using Amazon.SQS.Model;
+using Shared.Configuration;
+using Shared.Contracts.Commands;
+using Shared.Contracts.Replies;
+
 namespace InventoryService;
 
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
+    private readonly IAmazonSQS _sqs;
 
-    public Worker(ILogger<Worker> logger)
+    public Worker(ILogger<Worker> logger, IAmazonSQS sqs)
     {
         _logger = logger;
+        _sqs = sqs;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("InventoryService worker started");
 
-        while (!stoppingToken.IsCancellationRequested)
+        var commandsQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.InventoryCommands, stoppingToken)).QueueUrl;
+        var repliesQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.InventoryReplies, stoppingToken)).QueueUrl;
+
+        _logger.LogInformation("Queues resolved — commands: {CommandsQueue}, replies: {RepliesQueue}", commandsQueueUrl, repliesQueueUrl);
+
+        try
         {
-            // SQS message polling will be implemented in M2
-            await Task.Delay(5000, stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var response = await _sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+                {
+                    QueueUrl = commandsQueueUrl,
+                    WaitTimeSeconds = 2,
+                    MaxNumberOfMessages = 10
+                }, stoppingToken);
+
+                foreach (var message in response.Messages)
+                {
+                    try
+                    {
+                        var command = JsonSerializer.Deserialize<ReserveInventory>(message.Body)!;
+
+                        _logger.LogInformation(
+                            "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
+                            command.SagaId, command.OrderId, command.Items.Count);
+
+                        await Task.Delay(200, stoppingToken);
+
+                        var reply = new InventoryReply
+                        {
+                            SagaId = command.SagaId,
+                            Success = true,
+                            ReservationId = Guid.NewGuid().ToString()
+                        };
+
+                        await _sqs.SendMessageAsync(new SendMessageRequest
+                        {
+                            QueueUrl = repliesQueueUrl,
+                            MessageBody = JsonSerializer.Serialize(reply)
+                        }, stoppingToken);
+
+                        await _sqs.DeleteMessageAsync(commandsQueueUrl, message.ReceiptHandle, stoppingToken);
+
+                        _logger.LogInformation(
+                            "Reply enviado: InventoryReply SagaId={SagaId}, ReservationId={ReservationId}",
+                            reply.SagaId, reply.ReservationId);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogError(ex, "Erro ao processar mensagem: {MessageId}", message.MessageId);
+                    }
+                }
+
+                await Task.Delay(500, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("InventoryService worker stopping gracefully");
         }
     }
 }
