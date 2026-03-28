@@ -1,7 +1,7 @@
 # Roadmap
 
 **Current Milestone:** M2 - Saga Happy Path
-**Status:** Not Started
+**Status:** In Progress
 
 ---
 
@@ -36,11 +36,13 @@
 
 ### Features
 
-**saga-state-machine** - PLANNED
+**saga-state-machine** - DONE
 
 - Modelo de persistencia da saga (SagaId, estado atual, historico de transicoes)
 - Maquina de estados no SagaOrchestrator (Pending -> PaymentProcessing -> InventoryReserving -> ShippingScheduling -> Completed)
 - Transicoes acionadas por replies dos servicos via SQS
+- EF Core + Npgsql com SagaDbContext, EnsureCreated no startup
+- Endpoints POST /sagas e GET /sagas/{id} para teste manual
 
 **command-reply-flow** - PLANNED
 
