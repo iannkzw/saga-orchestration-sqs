@@ -44,7 +44,7 @@
 - EF Core + Npgsql com SagaDbContext, EnsureCreated no startup
 - Endpoints POST /sagas e GET /sagas/{id} para teste manual
 
-**command-reply-flow** - PLANNED
+**command-reply-flow** - DONE
 
 - Orquestrador envia comandos tipados (ProcessPayment, ReserveInventory, ScheduleShipping) via filas SQS dedicadas
 - Cada servico processa o comando e envia reply (Success/Failure) para fila de resposta do orquestrador
