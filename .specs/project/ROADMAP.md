@@ -1,7 +1,7 @@
 # Roadmap
 
-**Current Milestone:** M2 - Saga Happy Path
-**Status:** In Progress
+**Current Milestone:** M3 - Compensacoes e Resiliencia
+**Status:** Not Started
 
 ---
 
@@ -50,11 +50,11 @@
 - Cada servico processa o comando e envia reply (Success/Failure) para fila de resposta do orquestrador
 - Correlation via SagaId em todas as mensagens
 
-**order-api** - PLANNED
+**order-api** - DONE
 
-- Endpoint POST /orders que cria pedido e publica evento para iniciar saga
+- Endpoint POST /orders que cria pedido e inicia saga via HTTP ao orquestrador
 - Endpoint GET /orders/{id} que retorna estado atual do pedido e da saga
-- Persistencia do pedido no PostgreSQL
+- Persistencia do pedido no PostgreSQL com EF Core + Npgsql
 
 ---
 
