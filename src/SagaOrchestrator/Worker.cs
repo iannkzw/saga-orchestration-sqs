@@ -17,13 +17,13 @@ public class Worker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAmazonSQS _sqs;
 
-    private readonly record struct QueueMapping(string QueueName, Type ReplyType);
+    private readonly record struct QueueMapping(string QueueName, string ReplyTypeName);
 
     private static readonly QueueMapping[] _replyQueues =
     [
-        new(SqsConfig.PaymentReplies, typeof(PaymentReply)),
-        new(SqsConfig.InventoryReplies, typeof(InventoryReply)),
-        new(SqsConfig.ShippingReplies, typeof(ShippingReply)),
+        new(SqsConfig.PaymentReplies, "PaymentReplies"),
+        new(SqsConfig.InventoryReplies, "InventoryReplies"),
+        new(SqsConfig.ShippingReplies, "ShippingReplies"),
     ];
 
     public Worker(ILogger<Worker> logger, IServiceScopeFactory scopeFactory, IAmazonSQS sqs)
@@ -37,7 +37,6 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("SagaOrchestrator worker started — polling reply queues");
 
-        // Resolver URLs das filas uma vez
         var queueUrls = new Dictionary<string, string>();
         foreach (var mapping in _replyQueues)
         {
@@ -79,63 +78,159 @@ public class Worker : BackgroundService
 
     private async Task ProcessReplyAsync(Message message, QueueMapping mapping, string queueUrl, CancellationToken ct)
     {
-        var reply = (BaseReply?)JsonSerializer.Deserialize(message.Body, mapping.ReplyType);
-        if (reply is null)
-        {
-            _logger.LogWarning("Reply nulo ou invalido na fila {Queue}", mapping.QueueName);
-            return;
-        }
+        // Deserializar campos base para obter SagaId e Success
+        var baseReply = JsonSerializer.Deserialize<JsonElement>(message.Body);
+        var sagaId = baseReply.GetProperty("SagaId").GetGuid();
+        var success = baseReply.GetProperty("Success").GetBoolean();
 
         _logger.LogInformation("Reply recebido: SagaId={SagaId}, Success={Success}, Queue={Queue}",
-            reply.SagaId, reply.Success, mapping.QueueName);
-
-        if (!reply.Success)
-        {
-            _logger.LogWarning("Reply com falha para SagaId={SagaId}: {Error} — compensacao sera tratada no M3",
-                reply.SagaId, reply.ErrorMessage);
-            await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
-            return;
-        }
+            sagaId, success, mapping.QueueName);
 
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SagaDbContext>();
 
-        var saga = await db.Sagas.FirstOrDefaultAsync(s => s.Id == reply.SagaId, ct);
+        var saga = await db.Sagas.FirstOrDefaultAsync(s => s.Id == sagaId, ct);
         if (saga is null)
         {
-            _logger.LogWarning("Saga nao encontrada: {SagaId}", reply.SagaId);
+            _logger.LogWarning("Saga nao encontrada: {SagaId}", sagaId);
             await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
             return;
         }
 
-        var result = SagaStateMachine.TryAdvance(saga.CurrentState);
-        if (result is null)
+        if (SagaStateMachine.IsCompensating(saga.CurrentState))
         {
-            _logger.LogWarning("Transicao invalida para SagaId={SagaId}, estado atual={State}",
-                saga.Id, saga.CurrentState);
-            await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
-            return;
+            await HandleCompensationReplyAsync(saga, success, mapping, db, ct);
         }
-
-        saga.TransitionTo(result.NextState, mapping.ReplyType.Name);
-        await db.SaveChangesAsync(ct);
-
-        _logger.LogInformation("Saga {SagaId} transicionou para {State}", saga.Id, saga.CurrentState);
-
-        // Enviar proximo comando se nao for estado terminal
-        if (result.CommandQueue is not null)
+        else if (!success)
         {
-            await SendNextCommandAsync(saga, result.CommandQueue, ct);
+            await HandleFailureAsync(saga, baseReply, mapping, db, ct);
         }
         else
         {
-            _logger.LogInformation("Saga {SagaId} completada com sucesso", saga.Id);
+            await HandleSuccessAsync(saga, baseReply, mapping, db, ct);
         }
 
         await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
     }
 
-    private async Task SendNextCommandAsync(SagaInstance saga, string commandQueue, CancellationToken ct)
+    private async Task HandleSuccessAsync(SagaInstance saga, JsonElement replyJson, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
+    {
+        // Armazenar dados de compensacao do step que completou
+        StoreCompensationData(saga, replyJson);
+
+        var result = SagaStateMachine.TryAdvance(saga.CurrentState);
+        if (result is null)
+        {
+            _logger.LogWarning("Transicao invalida para SagaId={SagaId}, estado={State}", saga.Id, saga.CurrentState);
+            return;
+        }
+
+        saga.TransitionTo(result.NextState, mapping.ReplyTypeName);
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Saga {SagaId} transicionou para {State}", saga.Id, saga.CurrentState);
+
+        if (result.CommandQueue is not null)
+        {
+            await SendForwardCommandAsync(saga, result.CommandQueue, ct);
+        }
+        else
+        {
+            _logger.LogInformation("Saga {SagaId} completada com sucesso", saga.Id);
+        }
+    }
+
+    private async Task HandleFailureAsync(SagaInstance saga, JsonElement replyJson, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
+    {
+        var errorMessage = replyJson.TryGetProperty("ErrorMessage", out var em) ? em.GetString() : null;
+        _logger.LogWarning("Falha na saga {SagaId} no estado {State}: {Error}. Iniciando compensacao.",
+            saga.Id, saga.CurrentState, errorMessage);
+
+        var result = SagaStateMachine.TryCompensate(saga.CurrentState);
+        if (result is null)
+        {
+            _logger.LogWarning("Sem compensacao definida para estado {State}", saga.CurrentState);
+            saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:Failure");
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Failure");
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Saga {SagaId} iniciou compensacao -> {State}", saga.Id, saga.CurrentState);
+
+        if (result.CommandQueue is not null)
+        {
+            await SendCompensationCommandAsync(saga, result.CommandQueue, ct);
+        }
+        else
+        {
+            _logger.LogInformation("Saga {SagaId} falhou sem necessidade de compensacao", saga.Id);
+        }
+    }
+
+    private async Task HandleCompensationReplyAsync(SagaInstance saga, bool success, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
+    {
+        if (!success)
+        {
+            _logger.LogError("Falha na compensacao da saga {SagaId} no estado {State}. Intervencao manual necessaria.",
+                saga.Id, saga.CurrentState);
+            saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:CompensationFailure");
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var result = SagaStateMachine.TryAdvanceCompensation(saga.CurrentState);
+        if (result is null)
+        {
+            _logger.LogWarning("Transicao de compensacao invalida para estado {State}", saga.CurrentState);
+            return;
+        }
+
+        saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Compensated");
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Saga {SagaId} compensacao avancou para {State}", saga.Id, saga.CurrentState);
+
+        if (result.CommandQueue is not null)
+        {
+            await SendCompensationCommandAsync(saga, result.CommandQueue, ct);
+        }
+        else
+        {
+            _logger.LogInformation("Saga {SagaId} compensacao completa — estado final: Failed", saga.Id);
+        }
+    }
+
+    private void StoreCompensationData(SagaInstance saga, JsonElement replyJson)
+    {
+        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(saga.CompensationDataJson)
+            ?? new Dictionary<string, string>();
+
+        switch (saga.CurrentState)
+        {
+            case SagaState.PaymentProcessing when replyJson.TryGetProperty("TransactionId", out var tid):
+                data["TransactionId"] = tid.GetString() ?? string.Empty;
+                break;
+            case SagaState.InventoryReserving when replyJson.TryGetProperty("ReservationId", out var rid):
+                data["ReservationId"] = rid.GetString() ?? string.Empty;
+                break;
+            case SagaState.ShippingScheduling when replyJson.TryGetProperty("TrackingNumber", out var tn):
+                data["TrackingNumber"] = tn.GetString() ?? string.Empty;
+                break;
+        }
+
+        saga.CompensationDataJson = JsonSerializer.Serialize(data);
+    }
+
+    private Dictionary<string, string> GetCompensationData(SagaInstance saga)
+    {
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(saga.CompensationDataJson)
+            ?? new Dictionary<string, string>();
+    }
+
+    private async Task SendForwardCommandAsync(SagaInstance saga, string commandQueue, CancellationToken ct)
     {
         object command = saga.CurrentState switch
         {
@@ -158,14 +253,77 @@ public class Worker : BackgroundService
             _ => throw new InvalidOperationException($"Comando nao mapeado para estado {saga.CurrentState}")
         };
 
+        await SendCommandToQueueAsync(command, commandQueue, saga.SimulateFailure, ct);
+    }
+
+    private async Task SendCompensationCommandAsync(SagaInstance saga, string commandQueue, CancellationToken ct)
+    {
+        var compData = GetCompensationData(saga);
+
+        object command = saga.CurrentState switch
+        {
+            SagaState.PaymentRefunding => new RefundPayment
+            {
+                SagaId = saga.Id,
+                OrderId = saga.OrderId,
+                Amount = saga.TotalAmount,
+                TransactionId = compData.GetValueOrDefault("TransactionId", string.Empty),
+                IdempotencyKey = $"{saga.Id}-refund-payment",
+                Timestamp = DateTime.UtcNow
+            },
+            SagaState.InventoryReleasing => new ReleaseInventory
+            {
+                SagaId = saga.Id,
+                OrderId = saga.OrderId,
+                ReservationId = compData.GetValueOrDefault("ReservationId", string.Empty),
+                IdempotencyKey = $"{saga.Id}-release-inventory",
+                Timestamp = DateTime.UtcNow
+            },
+            SagaState.ShippingCancelling => new CancelShipping
+            {
+                SagaId = saga.Id,
+                OrderId = saga.OrderId,
+                TrackingNumber = compData.GetValueOrDefault("TrackingNumber", string.Empty),
+                IdempotencyKey = $"{saga.Id}-cancel-shipping",
+                Timestamp = DateTime.UtcNow
+            },
+            _ => throw new InvalidOperationException($"Comando de compensacao nao mapeado para estado {saga.CurrentState}")
+        };
+
+        await SendCommandToQueueAsync(command, commandQueue, null, ct);
+    }
+
+    private async Task SendCommandToQueueAsync(object command, string commandQueue, string? simulateFailure, CancellationToken ct)
+    {
         var queueUrlResponse = await _sqs.GetQueueUrlAsync(commandQueue, ct);
-        await _sqs.SendMessageAsync(new SendMessageRequest
+
+        var request = new SendMessageRequest
         {
             QueueUrl = queueUrlResponse.QueueUrl,
-            MessageBody = JsonSerializer.Serialize(command, command.GetType())
-        }, ct);
+            MessageBody = JsonSerializer.Serialize(command, command.GetType()),
+            MessageAttributes = new Dictionary<string, MessageAttributeValue>
+            {
+                ["CommandType"] = new()
+                {
+                    DataType = "String",
+                    StringValue = command.GetType().Name
+                }
+            }
+        };
 
-        _logger.LogInformation("Comando enviado para {Queue}: SagaId={SagaId}", commandQueue, saga.Id);
+        if (!string.IsNullOrEmpty(simulateFailure))
+        {
+            request.MessageAttributes["SimulateFailure"] = new MessageAttributeValue
+            {
+                DataType = "String",
+                StringValue = simulateFailure
+            };
+        }
+
+        await _sqs.SendMessageAsync(request, ct);
+
+        _logger.LogInformation("Comando {CommandType} enviado para {Queue}: SagaId={SagaId}",
+            command.GetType().Name, commandQueue, ((BaseCommand)command).SagaId);
     }
 
     private static List<InventoryItem> DeserializeItems(string itemsJson)

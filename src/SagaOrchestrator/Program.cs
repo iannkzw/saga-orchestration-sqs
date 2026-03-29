@@ -42,8 +42,15 @@ app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
     }
 }));
 
-app.MapPost("/sagas", async (CreateOrder command, SagaDbContext db, IAmazonSQS sqs) =>
+app.MapPost("/sagas", async (HttpContext context, SagaDbContext db, IAmazonSQS sqs) =>
 {
+    var command = await context.Request.ReadFromJsonAsync<CreateOrder>();
+    if (command is null)
+        return Results.BadRequest("Comando invalido");
+
+    // Capturar header de simulacao de falha
+    var simulateFailure = context.Request.Headers["X-Simulate-Failure"].FirstOrDefault();
+
     var saga = new SagaInstance
     {
         Id = command.SagaId != Guid.Empty ? command.SagaId : Guid.NewGuid(),
@@ -51,6 +58,7 @@ app.MapPost("/sagas", async (CreateOrder command, SagaDbContext db, IAmazonSQS s
         TotalAmount = command.TotalAmount,
         ItemsJson = JsonSerializer.Serialize(command.Items),
         CurrentState = SagaState.Pending,
+        SimulateFailure = simulateFailure,
         CreatedAt = DateTime.UtcNow,
         UpdatedAt = DateTime.UtcNow
     };
@@ -76,11 +84,30 @@ app.MapPost("/sagas", async (CreateOrder command, SagaDbContext db, IAmazonSQS s
     };
 
     var queueUrlResponse = await sqs.GetQueueUrlAsync(SqsConfig.PaymentCommands);
-    await sqs.SendMessageAsync(new SendMessageRequest
+    var sendRequest = new SendMessageRequest
     {
         QueueUrl = queueUrlResponse.QueueUrl,
-        MessageBody = JsonSerializer.Serialize(paymentCommand)
-    });
+        MessageBody = JsonSerializer.Serialize(paymentCommand),
+        MessageAttributes = new Dictionary<string, MessageAttributeValue>
+        {
+            ["CommandType"] = new()
+            {
+                DataType = "String",
+                StringValue = nameof(ProcessPayment)
+            }
+        }
+    };
+
+    if (!string.IsNullOrEmpty(simulateFailure))
+    {
+        sendRequest.MessageAttributes["SimulateFailure"] = new MessageAttributeValue
+        {
+            DataType = "String",
+            StringValue = simulateFailure
+        };
+    }
+
+    await sqs.SendMessageAsync(sendRequest);
 
     return Results.Created($"/sagas/{saga.Id}", new
     {

@@ -6,5 +6,11 @@ public enum SagaState
     PaymentProcessing,
     InventoryReserving,
     ShippingScheduling,
-    Completed
+    Completed,
+
+    // Compensation states (reverse order)
+    ShippingCancelling,
+    InventoryReleasing,
+    PaymentRefunding,
+    Failed
 }

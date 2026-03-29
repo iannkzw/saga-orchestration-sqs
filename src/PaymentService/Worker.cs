@@ -35,39 +35,28 @@ public class Worker : BackgroundService
                 {
                     QueueUrl = commandQueueUrl,
                     WaitTimeSeconds = 2,
-                    MaxNumberOfMessages = 10
+                    MaxNumberOfMessages = 10,
+                    MessageAttributeNames = ["All"]
                 }, stoppingToken);
 
                 foreach (var message in response.Messages)
                 {
                     try
                     {
-                        var command = JsonSerializer.Deserialize<ProcessPayment>(message.Body)!;
+                        var commandType = message.MessageAttributes.TryGetValue("CommandType", out var attr)
+                            ? attr.StringValue
+                            : "ProcessPayment";
 
-                        _logger.LogInformation(
-                            "Comando recebido: ProcessPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}",
-                            command.SagaId, command.OrderId, command.Amount);
-
-                        await Task.Delay(200, stoppingToken);
-
-                        var reply = new PaymentReply
+                        if (commandType == nameof(RefundPayment))
                         {
-                            SagaId = command.SagaId,
-                            Success = true,
-                            TransactionId = Guid.NewGuid().ToString()
-                        };
-
-                        await _sqs.SendMessageAsync(new SendMessageRequest
+                            await HandleRefundPaymentAsync(message, replyQueueUrl, stoppingToken);
+                        }
+                        else
                         {
-                            QueueUrl = replyQueueUrl,
-                            MessageBody = JsonSerializer.Serialize(reply)
-                        }, stoppingToken);
+                            await HandleProcessPaymentAsync(message, replyQueueUrl, stoppingToken);
+                        }
 
                         await _sqs.DeleteMessageAsync(commandQueueUrl, message.ReceiptHandle, stoppingToken);
-
-                        _logger.LogInformation(
-                            "Reply enviado: PaymentReply SagaId={SagaId}, TransactionId={TransactionId}",
-                            reply.SagaId, reply.TransactionId);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -84,5 +73,66 @@ public class Worker : BackgroundService
         }
 
         _logger.LogInformation("PaymentService worker stopped");
+    }
+
+    private async Task HandleProcessPaymentAsync(Message message, string replyQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<ProcessPayment>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando recebido: ProcessPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}",
+            command.SagaId, command.OrderId, command.Amount);
+
+        // Verificar simulacao de falha
+        var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
+            && failAttr.StringValue.Equals("payment", StringComparison.OrdinalIgnoreCase);
+
+        await Task.Delay(200, ct);
+
+        var reply = new PaymentReply
+        {
+            SagaId = command.SagaId,
+            Success = !shouldFail,
+            TransactionId = shouldFail ? null : Guid.NewGuid().ToString(),
+            ErrorMessage = shouldFail ? "Falha simulada no pagamento" : null
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = replyQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply enviado: PaymentReply SagaId={SagaId}, Success={Success}, TransactionId={TransactionId}",
+            reply.SagaId, reply.Success, reply.TransactionId);
+    }
+
+    private async Task HandleRefundPaymentAsync(Message message, string replyQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<RefundPayment>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando de compensacao: RefundPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}, TransactionId={TransactionId}",
+            command.SagaId, command.OrderId, command.Amount, command.TransactionId);
+
+        await Task.Delay(200, ct);
+
+        var reply = new RefundPaymentReply
+        {
+            SagaId = command.SagaId,
+            Success = true,
+            RefundId = $"REFUND-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}"
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = replyQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply de compensacao enviado: RefundPaymentReply SagaId={SagaId}, RefundId={RefundId}",
+            reply.SagaId, reply.RefundId);
     }
 }
