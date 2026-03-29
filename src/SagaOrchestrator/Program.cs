@@ -9,6 +9,7 @@ using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Extensions;
 using Shared.HealthChecks;
+using Shared.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,7 @@ builder.Services.AddHostedService<SagaOrchestrator.Worker>();
 
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
+builder.Services.AddSagaTracing("SagaOrchestrator");
 
 var connectionString = builder.Configuration.GetConnectionString("SagaDb")
     ?? "Host=localhost;Port=5432;Database=saga_db;Username=saga;Password=saga_pass";
@@ -107,7 +109,11 @@ app.MapPost("/sagas", async (HttpContext context, SagaDbContext db, IAmazonSQS s
         };
     }
 
-    await sqs.SendMessageAsync(sendRequest);
+    using (SagaActivitySource.StartSendCommand(nameof(ProcessPayment), saga.Id.ToString()))
+    {
+        SqsTracePropagation.Inject(sendRequest.MessageAttributes);
+        await sqs.SendMessageAsync(sendRequest);
+    }
 
     return Results.Created($"/sagas/{saga.Id}", new
     {

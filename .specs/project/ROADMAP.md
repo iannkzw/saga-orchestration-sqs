@@ -99,12 +99,14 @@
 
 ### Features
 
-**otel-traces** - PLANNED
+**otel-traces** - DONE
 
-- OpenTelemetry SDK integrado em todos os servicos
-- Trace propagation via SQS message attributes
-- Exporter configurado (OTLP ou console, minimo viavel)
-- SagaId como tag/attribute nos spans
+- OpenTelemetry SDK integrado em todos os servicos (v1.15.0)
+- Trace propagation via SQS message attributes (W3C TraceContext)
+- Console exporter como default, OTLP configuravel via OTEL_EXPORTER_OTLP_ENDPOINT
+- SagaId como tag/attribute nos spans (saga.id, saga.command_type, saga.state)
+- Instrumentacao automatica HTTP (AspNetCore + HttpClient)
+- ActivitySource compartilhada "SagaOrchestration" com factory methods padronizados
 
 **docs-didaticos** - PLANNED
 

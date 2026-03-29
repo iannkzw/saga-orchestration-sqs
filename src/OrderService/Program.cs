@@ -10,6 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
+builder.Services.AddSagaTracing("OrderService");
 
 var connectionString = builder.Configuration.GetConnectionString("SagaDb")
     ?? "Host=localhost;Port=5432;Database=saga_db;Username=saga;Password=saga_pass";

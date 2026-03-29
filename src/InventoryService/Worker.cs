@@ -5,6 +5,7 @@ using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
 using Shared.Idempotency;
+using Shared.Telemetry;
 
 namespace InventoryService;
 
@@ -81,6 +82,9 @@ public class Worker : BackgroundService
     private async Task HandleReserveInventoryAsync(Message message, string repliesQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<ReserveInventory>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(ReserveInventory), command.SagaId.ToString(), parentContext.ActivityContext);
 
         _logger.LogInformation(
             "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
@@ -93,11 +97,17 @@ public class Worker : BackgroundService
             _logger.LogInformation("Idempotency hit para ReserveInventory IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(InventoryReply), command.SagaId.ToString()))
             {
-                QueueUrl = repliesQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cached)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = repliesQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cached),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -118,11 +128,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(InventoryReply), command.SagaId.ToString()))
         {
-            QueueUrl = repliesQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply enviado: InventoryReply SagaId={SagaId}, Success={Success}, ReservationId={ReservationId}",
@@ -132,6 +148,9 @@ public class Worker : BackgroundService
     private async Task HandleReleaseInventoryAsync(Message message, string repliesQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<ReleaseInventory>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(ReleaseInventory), command.SagaId.ToString(), parentContext.ActivityContext);
 
         _logger.LogInformation(
             "Comando de compensacao: ReleaseInventory SagaId={SagaId}, OrderId={OrderId}, ReservationId={ReservationId}",
@@ -144,11 +163,17 @@ public class Worker : BackgroundService
             _logger.LogInformation("Idempotency hit para ReleaseInventory IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(ReleaseInventoryReply), command.SagaId.ToString()))
             {
-                QueueUrl = repliesQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cached)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = repliesQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cached),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -164,11 +189,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(ReleaseInventoryReply), command.SagaId.ToString()))
         {
-            QueueUrl = repliesQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply de compensacao enviado: ReleaseInventoryReply SagaId={SagaId}, ReservationId={ReservationId}",
