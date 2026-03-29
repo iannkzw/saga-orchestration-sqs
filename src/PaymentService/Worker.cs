@@ -4,6 +4,7 @@ using Amazon.SQS.Model;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
+using Shared.Idempotency;
 
 namespace PaymentService;
 
@@ -11,16 +12,20 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IAmazonSQS _sqs;
+    private readonly IdempotencyStore _idempotencyStore;
 
-    public Worker(ILogger<Worker> logger, IAmazonSQS sqs)
+    public Worker(ILogger<Worker> logger, IAmazonSQS sqs, IdempotencyStore idempotencyStore)
     {
         _logger = logger;
         _sqs = sqs;
+        _idempotencyStore = idempotencyStore;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("PaymentService worker started");
+
+        await _idempotencyStore.EnsureTableAsync();
 
         var commandQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.PaymentCommands, stoppingToken)).QueueUrl;
         var replyQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.PaymentReplies, stoppingToken)).QueueUrl;
@@ -83,6 +88,22 @@ public class Worker : BackgroundService
             "Comando recebido: ProcessPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}",
             command.SagaId, command.OrderId, command.Amount);
 
+        // Verificar idempotencia
+        var cachedReply = await _idempotencyStore.TryGetAsync<PaymentReply>(command.IdempotencyKey);
+        if (cachedReply is not null)
+        {
+            _logger.LogInformation("Idempotency hit para ProcessPayment IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
+                command.IdempotencyKey, command.SagaId);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = replyQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cachedReply)
+            }, ct);
+
+            return;
+        }
+
         // Verificar simulacao de falha
         var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
             && failAttr.StringValue.Equals("payment", StringComparison.OrdinalIgnoreCase);
@@ -96,6 +117,8 @@ public class Worker : BackgroundService
             TransactionId = shouldFail ? null : Guid.NewGuid().ToString(),
             ErrorMessage = shouldFail ? "Falha simulada no pagamento" : null
         };
+
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
         await _sqs.SendMessageAsync(new SendMessageRequest
         {
@@ -116,6 +139,22 @@ public class Worker : BackgroundService
             "Comando de compensacao: RefundPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}, TransactionId={TransactionId}",
             command.SagaId, command.OrderId, command.Amount, command.TransactionId);
 
+        // Verificar idempotencia
+        var cachedReply = await _idempotencyStore.TryGetAsync<RefundPaymentReply>(command.IdempotencyKey);
+        if (cachedReply is not null)
+        {
+            _logger.LogInformation("Idempotency hit para RefundPayment IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
+                command.IdempotencyKey, command.SagaId);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = replyQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cachedReply)
+            }, ct);
+
+            return;
+        }
+
         await Task.Delay(200, ct);
 
         var reply = new RefundPaymentReply
@@ -124,6 +163,8 @@ public class Worker : BackgroundService
             Success = true,
             RefundId = $"REFUND-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}"
         };
+
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
         await _sqs.SendMessageAsync(new SendMessageRequest
         {

@@ -4,6 +4,7 @@ using Amazon.SQS.Model;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
+using Shared.Idempotency;
 
 namespace InventoryService;
 
@@ -11,11 +12,13 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IAmazonSQS _sqs;
+    private readonly IdempotencyStore _idempotencyStore;
 
-    public Worker(ILogger<Worker> logger, IAmazonSQS sqs)
+    public Worker(ILogger<Worker> logger, IAmazonSQS sqs, IdempotencyStore idempotencyStore)
     {
         _logger = logger;
         _sqs = sqs;
+        _idempotencyStore = idempotencyStore;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -26,6 +29,8 @@ public class Worker : BackgroundService
         var repliesQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.InventoryReplies, stoppingToken)).QueueUrl;
 
         _logger.LogInformation("Queues resolved — commands: {CommandsQueue}, replies: {RepliesQueue}", commandsQueueUrl, repliesQueueUrl);
+
+        await _idempotencyStore.EnsureTableAsync();
 
         try
         {
@@ -81,6 +86,22 @@ public class Worker : BackgroundService
             "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
             command.SagaId, command.OrderId, command.Items.Count);
 
+        // Verificar idempotencia
+        var cached = await _idempotencyStore.TryGetAsync<InventoryReply>(command.IdempotencyKey);
+        if (cached is not null)
+        {
+            _logger.LogInformation("Idempotency hit para ReserveInventory IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
+                command.IdempotencyKey, command.SagaId);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cached)
+            }, ct);
+
+            return;
+        }
+
         // Verificar simulacao de falha
         var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
             && failAttr.StringValue.Equals("inventory", StringComparison.OrdinalIgnoreCase);
@@ -94,6 +115,8 @@ public class Worker : BackgroundService
             ReservationId = shouldFail ? null : Guid.NewGuid().ToString(),
             ErrorMessage = shouldFail ? "Falha simulada na reserva de inventario" : null
         };
+
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
         await _sqs.SendMessageAsync(new SendMessageRequest
         {
@@ -114,6 +137,22 @@ public class Worker : BackgroundService
             "Comando de compensacao: ReleaseInventory SagaId={SagaId}, OrderId={OrderId}, ReservationId={ReservationId}",
             command.SagaId, command.OrderId, command.ReservationId);
 
+        // Verificar idempotencia
+        var cached = await _idempotencyStore.TryGetAsync<ReleaseInventoryReply>(command.IdempotencyKey);
+        if (cached is not null)
+        {
+            _logger.LogInformation("Idempotency hit para ReleaseInventory IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
+                command.IdempotencyKey, command.SagaId);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cached)
+            }, ct);
+
+            return;
+        }
+
         await Task.Delay(200, ct);
 
         var reply = new ReleaseInventoryReply
@@ -122,6 +161,8 @@ public class Worker : BackgroundService
             Success = true,
             ReservationId = command.ReservationId
         };
+
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
         await _sqs.SendMessageAsync(new SendMessageRequest
         {
