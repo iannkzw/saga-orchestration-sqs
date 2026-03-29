@@ -6,6 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHostedService<InventoryService.Worker>();
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
+builder.Services.AddSagaTracing("InventoryService");
 
 var app = builder.Build();
 

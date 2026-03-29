@@ -5,6 +5,7 @@ using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
 using Shared.Idempotency;
+using Shared.Telemetry;
 
 namespace PaymentService;
 
@@ -83,6 +84,9 @@ public class Worker : BackgroundService
     private async Task HandleProcessPaymentAsync(Message message, string replyQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<ProcessPayment>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(ProcessPayment), command.SagaId.ToString(), parentContext.ActivityContext);
 
         _logger.LogInformation(
             "Comando recebido: ProcessPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}",
@@ -95,11 +99,17 @@ public class Worker : BackgroundService
             _logger.LogInformation("Idempotency hit para ProcessPayment IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(PaymentReply), command.SagaId.ToString()))
             {
-                QueueUrl = replyQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cachedReply)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = replyQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cachedReply),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -120,11 +130,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(PaymentReply), command.SagaId.ToString()))
         {
-            QueueUrl = replyQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = replyQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply enviado: PaymentReply SagaId={SagaId}, Success={Success}, TransactionId={TransactionId}",
@@ -134,6 +150,9 @@ public class Worker : BackgroundService
     private async Task HandleRefundPaymentAsync(Message message, string replyQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<RefundPayment>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(RefundPayment), command.SagaId.ToString(), parentContext.ActivityContext);
 
         _logger.LogInformation(
             "Comando de compensacao: RefundPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}, TransactionId={TransactionId}",
@@ -146,11 +165,17 @@ public class Worker : BackgroundService
             _logger.LogInformation("Idempotency hit para RefundPayment IdempotencyKey={IdempotencyKey}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(RefundPaymentReply), command.SagaId.ToString()))
             {
-                QueueUrl = replyQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cachedReply)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = replyQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cachedReply),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -166,11 +191,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(RefundPaymentReply), command.SagaId.ToString()))
         {
-            QueueUrl = replyQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = replyQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply de compensacao enviado: RefundPaymentReply SagaId={SagaId}, RefundId={RefundId}",

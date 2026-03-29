@@ -14,6 +14,8 @@
 
 - **2026-03-28:** Feature dlq-visibility implementada. Endpoint GET /dlq no SagaOrchestrator lista mensagens de todas as 8 DLQs (peek com VisibilityTimeout=0). Endpoint POST /dlq/redrive reenvia mensagem da DLQ para a fila original e deleta da DLQ. SqsConfig ampliado com AllDlqNames (array das 8 DLQs) e DlqToOriginalQueue (mapeamento DLQ->fila original). M3 concluido.
 
+- **2026-03-29:** Feature otel-traces implementada. OpenTelemetry SDK 1.15.0 integrado em todos os 5 servicos via Shared. Trace propagation via W3C TraceContext em SQS message attributes (SqsTracePropagation helper). SagaActivitySource com factory methods para spans padronizados (send/process command/reply). Console exporter como default, OTLP configuravel via env var. Instrumentacao automatica AspNetCore + HttpClient. Pacotes Microsoft.Extensions atualizados de preview para 10.0.0 estavel (compatibilidade com OTel 1.15.0). Decisao: sem instrumentacao de DB (EF Core/Npgsql) — complexidade sem valor didatico.
+
 ## Blockers
 
 _Nenhum no momento._
@@ -26,6 +28,8 @@ _Nenhum no momento._
 - **AWSSDK.SQS v4 preview:** Versao 4.0.0-preview.5 e necessaria para .NET 10 — versao 3.x nao e compativel
 - **EF Core 10 preview:** Versao exata 10.0.0-preview.3.25171.1 nao existe no NuGet — usar 10.0.0-preview.3.25171.6. Npgsql.EFCore 10.0.0-preview.3 e compativel
 - **Dockerfile com Shared:** Build context precisa ser raiz do repo (nao src/Service) para copiar Directory.Build.props e Shared
+- **OpenTelemetry 1.15.0 + .NET 10:** OTel 1.15.0 depende de Microsoft.Extensions.*.Abstractions 10.0.0 (estavel). Versoes preview (10.0.0-preview.3) causam NU1605 (downgrade detectado). Atualizar para 10.0.0 estavel resolve
+- **SQS trace propagation manual:** AWSSDK.SQS nao tem instrumentacao OTel nativa. Necessario inject/extract manual de traceparent/tracestate via MessageAttributes usando Propagators.DefaultTextMapPropagator
 
 ## Deferred Ideas
 

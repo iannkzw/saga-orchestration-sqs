@@ -8,6 +8,7 @@ using SagaOrchestrator.StateMachine;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
+using Shared.Telemetry;
 
 namespace SagaOrchestrator;
 
@@ -55,6 +56,7 @@ public class Worker : BackgroundService
                         QueueUrl = queueUrls[mapping.QueueName],
                         MaxNumberOfMessages = 10,
                         WaitTimeSeconds = 1,
+                        MessageAttributeNames = ["All"]
                     }, stoppingToken);
 
                     foreach (var message in receiveResponse.Messages)
@@ -82,6 +84,10 @@ public class Worker : BackgroundService
         var baseReply = JsonSerializer.Deserialize<JsonElement>(message.Body);
         var sagaId = baseReply.GetProperty("SagaId").GetGuid();
         var success = baseReply.GetProperty("Success").GetBoolean();
+
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var activity = SagaActivitySource.StartProcessReply(
+            mapping.ReplyTypeName, sagaId.ToString(), "Processing", parentContext.ActivityContext);
 
         _logger.LogInformation("Reply recebido: SagaId={SagaId}, Success={Success}, Queue={Queue}",
             sagaId, success, mapping.QueueName);
@@ -296,6 +302,7 @@ public class Worker : BackgroundService
     private async Task SendCommandToQueueAsync(object command, string commandQueue, string? simulateFailure, CancellationToken ct)
     {
         var queueUrlResponse = await _sqs.GetQueueUrlAsync(commandQueue, ct);
+        var baseCommand = (BaseCommand)command;
 
         var request = new SendMessageRequest
         {
@@ -320,10 +327,14 @@ public class Worker : BackgroundService
             };
         }
 
-        await _sqs.SendMessageAsync(request, ct);
+        using (SagaActivitySource.StartSendCommand(command.GetType().Name, baseCommand.SagaId.ToString()))
+        {
+            SqsTracePropagation.Inject(request.MessageAttributes);
+            await _sqs.SendMessageAsync(request, ct);
+        }
 
         _logger.LogInformation("Comando {CommandType} enviado para {Queue}: SagaId={SagaId}",
-            command.GetType().Name, commandQueue, ((BaseCommand)command).SagaId);
+            command.GetType().Name, commandQueue, baseCommand.SagaId);
     }
 
     private static List<InventoryItem> DeserializeItems(string itemsJson)

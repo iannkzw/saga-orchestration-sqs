@@ -5,6 +5,7 @@ using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
 using Shared.Idempotency;
+using Shared.Telemetry;
 
 namespace ShippingService;
 
@@ -85,6 +86,9 @@ public class Worker : BackgroundService
     private async Task HandleScheduleShippingAsync(Message message, string repliesQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<ScheduleShipping>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(ScheduleShipping), command.SagaId.ToString(), parentContext.ActivityContext);
 
         // Verificar idempotencia
         var cachedReply = await _idempotencyStore.TryGetAsync<ShippingReply>(command.IdempotencyKey);
@@ -94,11 +98,17 @@ public class Worker : BackgroundService
                 "Idempotency hit: ScheduleShipping SagaId={SagaId}, IdempotencyKey={IdempotencyKey}",
                 command.SagaId, command.IdempotencyKey);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(ShippingReply), command.SagaId.ToString()))
             {
-                QueueUrl = repliesQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cachedReply)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = repliesQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cachedReply),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -123,11 +133,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(ShippingReply), command.SagaId.ToString()))
         {
-            QueueUrl = repliesQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply enviado: ShippingReply SagaId={SagaId}, Success={Success}, TrackingNumber={TrackingNumber}",
@@ -137,6 +153,9 @@ public class Worker : BackgroundService
     private async Task HandleCancelShippingAsync(Message message, string repliesQueueUrl, CancellationToken ct)
     {
         var command = JsonSerializer.Deserialize<CancelShipping>(message.Body)!;
+        var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
+        using var processActivity = SagaActivitySource.StartProcessCommand(
+            nameof(CancelShipping), command.SagaId.ToString(), parentContext.ActivityContext);
 
         // Verificar idempotencia
         var cachedReply = await _idempotencyStore.TryGetAsync<CancelShippingReply>(command.IdempotencyKey);
@@ -146,11 +165,17 @@ public class Worker : BackgroundService
                 "Idempotency hit: CancelShipping SagaId={SagaId}, IdempotencyKey={IdempotencyKey}",
                 command.SagaId, command.IdempotencyKey);
 
-            await _sqs.SendMessageAsync(new SendMessageRequest
+            using (SagaActivitySource.StartSendReply(nameof(CancelShippingReply), command.SagaId.ToString()))
             {
-                QueueUrl = repliesQueueUrl,
-                MessageBody = JsonSerializer.Serialize(cachedReply)
-            }, ct);
+                var replyRequest = new SendMessageRequest
+                {
+                    QueueUrl = repliesQueueUrl,
+                    MessageBody = JsonSerializer.Serialize(cachedReply),
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+                };
+                SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+                await _sqs.SendMessageAsync(replyRequest, ct);
+            }
 
             return;
         }
@@ -170,11 +195,17 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
-        await _sqs.SendMessageAsync(new SendMessageRequest
+        using (SagaActivitySource.StartSendReply(nameof(CancelShippingReply), command.SagaId.ToString()))
         {
-            QueueUrl = repliesQueueUrl,
-            MessageBody = JsonSerializer.Serialize(reply)
-        }, ct);
+            var replyRequest = new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(reply),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>()
+            };
+            SqsTracePropagation.Inject(replyRequest.MessageAttributes);
+            await _sqs.SendMessageAsync(replyRequest, ct);
+        }
 
         _logger.LogInformation(
             "Reply de compensacao enviado: CancelShippingReply SagaId={SagaId}, TrackingNumber={TrackingNumber}",
