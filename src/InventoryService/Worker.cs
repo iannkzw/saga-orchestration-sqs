@@ -35,39 +35,28 @@ public class Worker : BackgroundService
                 {
                     QueueUrl = commandsQueueUrl,
                     WaitTimeSeconds = 2,
-                    MaxNumberOfMessages = 10
+                    MaxNumberOfMessages = 10,
+                    MessageAttributeNames = ["All"]
                 }, stoppingToken);
 
                 foreach (var message in response.Messages)
                 {
                     try
                     {
-                        var command = JsonSerializer.Deserialize<ReserveInventory>(message.Body)!;
+                        var commandType = message.MessageAttributes.TryGetValue("CommandType", out var attr)
+                            ? attr.StringValue
+                            : "ReserveInventory";
 
-                        _logger.LogInformation(
-                            "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
-                            command.SagaId, command.OrderId, command.Items.Count);
-
-                        await Task.Delay(200, stoppingToken);
-
-                        var reply = new InventoryReply
+                        if (commandType == nameof(ReleaseInventory))
                         {
-                            SagaId = command.SagaId,
-                            Success = true,
-                            ReservationId = Guid.NewGuid().ToString()
-                        };
-
-                        await _sqs.SendMessageAsync(new SendMessageRequest
+                            await HandleReleaseInventoryAsync(message, repliesQueueUrl, stoppingToken);
+                        }
+                        else
                         {
-                            QueueUrl = repliesQueueUrl,
-                            MessageBody = JsonSerializer.Serialize(reply)
-                        }, stoppingToken);
+                            await HandleReserveInventoryAsync(message, repliesQueueUrl, stoppingToken);
+                        }
 
                         await _sqs.DeleteMessageAsync(commandsQueueUrl, message.ReceiptHandle, stoppingToken);
-
-                        _logger.LogInformation(
-                            "Reply enviado: InventoryReply SagaId={SagaId}, ReservationId={ReservationId}",
-                            reply.SagaId, reply.ReservationId);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -82,5 +71,66 @@ public class Worker : BackgroundService
         {
             _logger.LogInformation("InventoryService worker stopping gracefully");
         }
+    }
+
+    private async Task HandleReserveInventoryAsync(Message message, string repliesQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<ReserveInventory>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
+            command.SagaId, command.OrderId, command.Items.Count);
+
+        // Verificar simulacao de falha
+        var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
+            && failAttr.StringValue.Equals("inventory", StringComparison.OrdinalIgnoreCase);
+
+        await Task.Delay(200, ct);
+
+        var reply = new InventoryReply
+        {
+            SagaId = command.SagaId,
+            Success = !shouldFail,
+            ReservationId = shouldFail ? null : Guid.NewGuid().ToString(),
+            ErrorMessage = shouldFail ? "Falha simulada na reserva de inventario" : null
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = repliesQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply enviado: InventoryReply SagaId={SagaId}, Success={Success}, ReservationId={ReservationId}",
+            reply.SagaId, reply.Success, reply.ReservationId);
+    }
+
+    private async Task HandleReleaseInventoryAsync(Message message, string repliesQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<ReleaseInventory>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando de compensacao: ReleaseInventory SagaId={SagaId}, OrderId={OrderId}, ReservationId={ReservationId}",
+            command.SagaId, command.OrderId, command.ReservationId);
+
+        await Task.Delay(200, ct);
+
+        var reply = new ReleaseInventoryReply
+        {
+            SagaId = command.SagaId,
+            Success = true,
+            ReservationId = command.ReservationId
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = repliesQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply de compensacao enviado: ReleaseInventoryReply SagaId={SagaId}, ReservationId={ReservationId}",
+            reply.SagaId, reply.ReservationId);
     }
 }

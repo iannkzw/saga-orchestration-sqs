@@ -1,7 +1,7 @@
 # Roadmap
 
 **Current Milestone:** M3 - Compensacoes e Resiliencia
-**Status:** Not Started
+**Status:** In Progress (compensation-cascade DONE, idempotency e dlq-visibility pendentes)
 
 ---
 
@@ -65,12 +65,14 @@
 
 ### Features
 
-**compensation-cascade** - PLANNED
+**compensation-cascade** - DONE
 
-- Estado Compensating no orquestrador
-- Compensacoes na ordem reversa (CancelShipping -> ReleaseInventory -> RefundPayment)
-- Saga termina em estado Failed apos compensacoes completas
-- Simulacao de falha configuravel por servico (flag ou header)
+- Estados de compensacao: ShippingCancelling, InventoryReleasing, PaymentRefunding, Failed
+- Compensacoes na ordem reversa baseada no ponto de falha
+- Comandos: RefundPayment, ReleaseInventory, CancelShipping com replies correspondentes
+- CompensationDataJson armazena metadados (TransactionId, ReservationId, TrackingNumber)
+- Simulacao de falha via header X-Simulate-Failure (payment|inventory|shipping)
+- Message attribute CommandType para despacho de comandos forward vs compensacao
 
 **idempotency** - PLANNED
 

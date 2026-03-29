@@ -9,6 +9,7 @@
 - **2026-03-28:** Feature saga-state-machine implementada (T1-T7). EF Core + Npgsql no SagaOrchestrator, modelo SagaInstance/SagaStateTransition, SagaStateMachine com transicoes, Worker com polling de replies, endpoints POST/GET /sagas.
 - **2026-03-28:** Feature command-reply-flow implementada (T1-T3). Workers do PaymentService, InventoryService e ShippingService fazem polling de comandos, simulam processamento e enviam replies com Success=true. Correlation via SagaId preservado.
 - **2026-03-28:** Feature order-api implementada (T1-T6). OrderService com EF Core + Npgsql, modelo Order, POST /orders (cria pedido + inicia saga via HTTP), GET /orders/{id} (retorna pedido + estado da saga). M2 concluido.
+- **2026-03-28:** Feature compensation-cascade implementada. Estados de compensacao (ShippingCancelling, InventoryReleasing, PaymentRefunding, Failed) na maquina de estados. Comandos de compensacao (RefundPayment, ReleaseInventory, CancelShipping) e replies correspondentes. Worker do orquestrador processa falhas e cascata de compensacao. Service workers despacham comandos forward e de compensacao via message attribute CommandType. Simulacao de falha via header X-Simulate-Failure propagado do OrderService ao orquestrador e aos comandos SQS. CompensationDataJson na SagaInstance armazena metadados de steps completos para uso nos comandos de compensacao.
 
 ## Blockers
 

@@ -84,6 +84,14 @@ app.MapPost("/orders", async (HttpContext context, OrderDbContext db, IHttpClien
     };
 
     var client = httpClientFactory.CreateClient("SagaOrchestrator");
+
+    // Propagar header de simulacao de falha para o orquestrador
+    var simulateFailure = context.Request.Headers["X-Simulate-Failure"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(simulateFailure))
+    {
+        client.DefaultRequestHeaders.Add("X-Simulate-Failure", simulateFailure);
+    }
+
     var sagaResponse = await client.PostAsJsonAsync("/sagas", createOrderCommand);
     sagaResponse.EnsureSuccessStatusCode();
 

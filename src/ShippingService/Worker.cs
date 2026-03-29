@@ -33,39 +33,28 @@ public class Worker : BackgroundService
                 {
                     QueueUrl = commandsQueueUrl,
                     WaitTimeSeconds = 2,
-                    MaxNumberOfMessages = 10
+                    MaxNumberOfMessages = 10,
+                    MessageAttributeNames = ["All"]
                 }, stoppingToken);
 
                 foreach (var message in response.Messages)
                 {
                     try
                     {
-                        var command = JsonSerializer.Deserialize<ScheduleShipping>(message.Body)!;
+                        var commandType = message.MessageAttributes.TryGetValue("CommandType", out var attr)
+                            ? attr.StringValue
+                            : "ScheduleShipping";
 
-                        _logger.LogInformation(
-                            "Comando recebido: ScheduleShipping SagaId={SagaId}, OrderId={OrderId}, Address={ShippingAddress}",
-                            command.SagaId, command.OrderId, command.ShippingAddress);
-
-                        await Task.Delay(200, stoppingToken);
-
-                        var reply = new ShippingReply
+                        if (commandType == nameof(CancelShipping))
                         {
-                            SagaId = command.SagaId,
-                            Success = true,
-                            TrackingNumber = $"TRACK-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}"
-                        };
-
-                        await _sqs.SendMessageAsync(new SendMessageRequest
+                            await HandleCancelShippingAsync(message, repliesQueueUrl, stoppingToken);
+                        }
+                        else
                         {
-                            QueueUrl = repliesQueueUrl,
-                            MessageBody = JsonSerializer.Serialize(reply)
-                        }, stoppingToken);
+                            await HandleScheduleShippingAsync(message, repliesQueueUrl, stoppingToken);
+                        }
 
                         await _sqs.DeleteMessageAsync(commandsQueueUrl, message.ReceiptHandle, stoppingToken);
-
-                        _logger.LogInformation(
-                            "Reply enviado: ShippingReply SagaId={SagaId}, TrackingNumber={TrackingNumber}",
-                            reply.SagaId, reply.TrackingNumber);
                     }
                     catch (OperationCanceledException)
                     {
@@ -86,5 +75,66 @@ public class Worker : BackgroundService
         }
 
         _logger.LogInformation("ShippingService worker stopped");
+    }
+
+    private async Task HandleScheduleShippingAsync(Message message, string repliesQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<ScheduleShipping>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando recebido: ScheduleShipping SagaId={SagaId}, OrderId={OrderId}, Address={ShippingAddress}",
+            command.SagaId, command.OrderId, command.ShippingAddress);
+
+        // Verificar simulacao de falha
+        var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
+            && failAttr.StringValue.Equals("shipping", StringComparison.OrdinalIgnoreCase);
+
+        await Task.Delay(200, ct);
+
+        var reply = new ShippingReply
+        {
+            SagaId = command.SagaId,
+            Success = !shouldFail,
+            TrackingNumber = shouldFail ? null : $"TRACK-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}",
+            ErrorMessage = shouldFail ? "Falha simulada no envio" : null
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = repliesQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply enviado: ShippingReply SagaId={SagaId}, Success={Success}, TrackingNumber={TrackingNumber}",
+            reply.SagaId, reply.Success, reply.TrackingNumber);
+    }
+
+    private async Task HandleCancelShippingAsync(Message message, string repliesQueueUrl, CancellationToken ct)
+    {
+        var command = JsonSerializer.Deserialize<CancelShipping>(message.Body)!;
+
+        _logger.LogInformation(
+            "Comando de compensacao: CancelShipping SagaId={SagaId}, OrderId={OrderId}, TrackingNumber={TrackingNumber}",
+            command.SagaId, command.OrderId, command.TrackingNumber);
+
+        await Task.Delay(200, ct);
+
+        var reply = new CancelShippingReply
+        {
+            SagaId = command.SagaId,
+            Success = true,
+            TrackingNumber = command.TrackingNumber
+        };
+
+        await _sqs.SendMessageAsync(new SendMessageRequest
+        {
+            QueueUrl = repliesQueueUrl,
+            MessageBody = JsonSerializer.Serialize(reply)
+        }, ct);
+
+        _logger.LogInformation(
+            "Reply de compensacao enviado: CancelShippingReply SagaId={SagaId}, TrackingNumber={TrackingNumber}",
+            reply.SagaId, reply.TrackingNumber);
     }
 }

@@ -7,6 +7,8 @@ public class SagaInstance
     public SagaState CurrentState { get; set; } = SagaState.Pending;
     public decimal TotalAmount { get; set; }
     public string ItemsJson { get; set; } = "[]";
+    public string CompensationDataJson { get; set; } = "{}";
+    public string? SimulateFailure { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
