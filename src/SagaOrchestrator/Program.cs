@@ -143,4 +143,102 @@ app.MapGet("/sagas/{id:guid}", async (Guid id, SagaDbContext db) =>
     });
 });
 
+// === DLQ Visibility ===
+
+app.MapGet("/dlq", async (IAmazonSQS sqs) =>
+{
+    var result = new Dictionary<string, object>();
+
+    foreach (var dlqName in SqsConfig.AllDlqNames)
+    {
+        try
+        {
+            var queueUrl = (await sqs.GetQueueUrlAsync(dlqName)).QueueUrl;
+            var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+            {
+                QueueUrl = queueUrl,
+                MaxNumberOfMessages = 10,
+                VisibilityTimeout = 0, // peek — nao esconde a mensagem
+                MessageSystemAttributeNames = ["All"]
+            });
+
+            var messages = response.Messages.Select(m =>
+            {
+                // Tentar parsear body como JSON
+                object body;
+                try { body = JsonSerializer.Deserialize<JsonElement>(m.Body); }
+                catch { body = m.Body; }
+
+                return new
+                {
+                    messageId = m.MessageId,
+                    receiptHandle = m.ReceiptHandle,
+                    body,
+                    approximateReceiveCount = m.Attributes.GetValueOrDefault("ApproximateReceiveCount"),
+                    sentTimestamp = m.Attributes.GetValueOrDefault("SentTimestamp")
+                };
+            });
+
+            result[dlqName] = new { count = messages.Count(), messages };
+        }
+        catch (Exception ex)
+        {
+            result[dlqName] = new { count = 0, messages = Array.Empty<object>(), error = ex.Message };
+        }
+    }
+
+    return Results.Ok(result);
+});
+
+app.MapPost("/dlq/redrive", async (HttpContext context, IAmazonSQS sqs) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<JsonElement>();
+
+    var queueName = request.GetProperty("queueName").GetString();
+    var receiptHandle = request.GetProperty("receiptHandle").GetString();
+
+    if (string.IsNullOrEmpty(queueName) || string.IsNullOrEmpty(receiptHandle))
+        return Results.BadRequest("queueName e receiptHandle sao obrigatorios");
+
+    // Validar que e uma DLQ conhecida
+    if (!SqsConfig.DlqToOriginalQueue.TryGetValue(queueName, out var originalQueue))
+        return Results.BadRequest($"DLQ desconhecida: {queueName}");
+
+    var dlqUrl = (await sqs.GetQueueUrlAsync(queueName)).QueueUrl;
+    var originalUrl = (await sqs.GetQueueUrlAsync(originalQueue)).QueueUrl;
+
+    // Ler mensagem da DLQ pelo receipt handle (receber para obter o body)
+    var dlqMessages = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+    {
+        QueueUrl = dlqUrl,
+        MaxNumberOfMessages = 1,
+        VisibilityTimeout = 30
+    });
+
+    var message = dlqMessages.Messages.FirstOrDefault(m => m.ReceiptHandle == receiptHandle);
+    if (message is null)
+    {
+        // Tentar enviar direto — receipt handle pode ter mudado, buscar qualquer mensagem
+        return Results.NotFound("Mensagem nao encontrada na DLQ. O receiptHandle pode ter expirado.");
+    }
+
+    // Reenviar para fila original
+    await sqs.SendMessageAsync(new SendMessageRequest
+    {
+        QueueUrl = originalUrl,
+        MessageBody = message.Body
+    });
+
+    // Deletar da DLQ
+    await sqs.DeleteMessageAsync(dlqUrl, receiptHandle);
+
+    return Results.Ok(new
+    {
+        redriven = true,
+        fromDlq = queueName,
+        toQueue = originalQueue,
+        messageId = message.MessageId
+    });
+});
+
 app.Run();
