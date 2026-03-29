@@ -1,6 +1,7 @@
 using Amazon.SQS;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.HealthChecks;
+using Shared.Idempotency;
 
 namespace Shared.Extensions;
 
@@ -12,6 +13,7 @@ public static class ServiceCollectionExtensions
         {
             ServiceURL = sqsServiceUrl
         }));
+        services.AddSingleton<IdempotencyStore>();
         services.AddSingleton<SqsConnectivityCheck>();
         services.AddSingleton<PostgresConnectivityCheck>();
         services.AddSingleton<StartupConnectivityCheck>();

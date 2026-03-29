@@ -4,6 +4,7 @@ using Amazon.SQS.Model;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Replies;
+using Shared.Idempotency;
 
 namespace ShippingService;
 
@@ -11,11 +12,13 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IAmazonSQS _sqs;
+    private readonly IdempotencyStore _idempotencyStore;
 
-    public Worker(ILogger<Worker> logger, IAmazonSQS sqs)
+    public Worker(ILogger<Worker> logger, IAmazonSQS sqs, IdempotencyStore idempotencyStore)
     {
         _logger = logger;
         _sqs = sqs;
+        _idempotencyStore = idempotencyStore;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -24,6 +27,8 @@ public class Worker : BackgroundService
 
         var commandsQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.ShippingCommands, stoppingToken)).QueueUrl;
         var repliesQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.ShippingReplies, stoppingToken)).QueueUrl;
+
+        await _idempotencyStore.EnsureTableAsync();
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -81,6 +86,23 @@ public class Worker : BackgroundService
     {
         var command = JsonSerializer.Deserialize<ScheduleShipping>(message.Body)!;
 
+        // Verificar idempotencia
+        var cachedReply = await _idempotencyStore.TryGetAsync<ShippingReply>(command.IdempotencyKey);
+        if (cachedReply is not null)
+        {
+            _logger.LogInformation(
+                "Idempotency hit: ScheduleShipping SagaId={SagaId}, IdempotencyKey={IdempotencyKey}",
+                command.SagaId, command.IdempotencyKey);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cachedReply)
+            }, ct);
+
+            return;
+        }
+
         _logger.LogInformation(
             "Comando recebido: ScheduleShipping SagaId={SagaId}, OrderId={OrderId}, Address={ShippingAddress}",
             command.SagaId, command.OrderId, command.ShippingAddress);
@@ -99,6 +121,8 @@ public class Worker : BackgroundService
             ErrorMessage = shouldFail ? "Falha simulada no envio" : null
         };
 
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
+
         await _sqs.SendMessageAsync(new SendMessageRequest
         {
             QueueUrl = repliesQueueUrl,
@@ -114,6 +138,23 @@ public class Worker : BackgroundService
     {
         var command = JsonSerializer.Deserialize<CancelShipping>(message.Body)!;
 
+        // Verificar idempotencia
+        var cachedReply = await _idempotencyStore.TryGetAsync<CancelShippingReply>(command.IdempotencyKey);
+        if (cachedReply is not null)
+        {
+            _logger.LogInformation(
+                "Idempotency hit: CancelShipping SagaId={SagaId}, IdempotencyKey={IdempotencyKey}",
+                command.SagaId, command.IdempotencyKey);
+
+            await _sqs.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = repliesQueueUrl,
+                MessageBody = JsonSerializer.Serialize(cachedReply)
+            }, ct);
+
+            return;
+        }
+
         _logger.LogInformation(
             "Comando de compensacao: CancelShipping SagaId={SagaId}, OrderId={OrderId}, TrackingNumber={TrackingNumber}",
             command.SagaId, command.OrderId, command.TrackingNumber);
@@ -126,6 +167,8 @@ public class Worker : BackgroundService
             Success = true,
             TrackingNumber = command.TrackingNumber
         };
+
+        await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
         await _sqs.SendMessageAsync(new SendMessageRequest
         {

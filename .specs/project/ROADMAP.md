@@ -1,7 +1,7 @@
 # Roadmap
 
 **Current Milestone:** M3 - Compensacoes e Resiliencia
-**Status:** In Progress (compensation-cascade DONE, idempotency e dlq-visibility pendentes)
+**Status:** In Progress (compensation-cascade DONE, idempotency DONE, dlq-visibility pendente)
 
 ---
 
@@ -74,11 +74,13 @@
 - Simulacao de falha via header X-Simulate-Failure (payment|inventory|shipping)
 - Message attribute CommandType para despacho de comandos forward vs compensacao
 
-**idempotency** - PLANNED
+**idempotency** - DONE
 
-- IdempotencyKey em todos os comandos
-- Tabela de idempotencia no PostgreSQL por servico
-- Handlers verificam chave antes de processar — retornam resultado anterior se ja processado
+- IdempotencyKey em todos os comandos (BaseCommand)
+- IdempotencyStore centralizado em Shared/Idempotency (Npgsql direto, tabela idempotency_keys)
+- Handlers nos 3 servicos (Payment, Inventory, Shipping) verificam chave antes de processar
+- Se ja processado, retorna resultado anterior sem reprocessar
+- Aplicado em comandos forward (ProcessPayment, ReserveInventory, ScheduleShipping) E de compensacao (RefundPayment, ReleaseInventory, CancelShipping)
 
 **dlq-visibility** - PLANNED
 
