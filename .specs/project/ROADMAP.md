@@ -1,7 +1,7 @@
 # Roadmap
 
-**Current Milestone:** M3 - Compensacoes e Resiliencia
-**Status:** In Progress (compensation-cascade DONE, idempotency DONE, dlq-visibility pendente)
+**Current Milestone:** M4 - Observabilidade e Documentacao
+**Status:** Planned
 
 ---
 
@@ -58,7 +58,7 @@
 
 ---
 
-## M3 - Compensacoes e Resiliencia
+## M3 - Compensacoes e Resiliencia — DONE
 
 **Goal:** Quando um passo falha, o orquestrador executa compensacoes na ordem reversa. Mensagens problematicas vao para DLQ. Handlers sao idempotentes.
 **Target:** Cenarios de falha demonstraveis e reproduziveis
@@ -82,11 +82,13 @@
 - Se ja processado, retorna resultado anterior sem reprocessar
 - Aplicado em comandos forward (ProcessPayment, ReserveInventory, ScheduleShipping) E de compensacao (RefundPayment, ReleaseInventory, CancelShipping)
 
-**dlq-visibility** - PLANNED
+**dlq-visibility** - DONE
 
-- Dead Letter Queue configurada para cada fila SQS (maxReceiveCount)
-- Endpoint ou script para consultar mensagens na DLQ
-- Visibility timeout configurado adequadamente
+- Dead Letter Queue configurada para cada fila SQS (maxReceiveCount=3)
+- Endpoint GET /dlq no SagaOrchestrator lista mensagens de todas as 8 DLQs
+- Cada mensagem inclui: queue name, body (JSON), ApproximateReceiveCount, SentTimestamp
+- Endpoint POST /dlq/redrive reenvia mensagem da DLQ para a fila original
+- SqsConfig com AllDlqNames e DlqToOriginalQueue para mapeamento centralizado
 
 ---
 

@@ -12,6 +12,8 @@
 - **2026-03-28:** Feature compensation-cascade implementada. Estados de compensacao (ShippingCancelling, InventoryReleasing, PaymentRefunding, Failed) na maquina de estados. Comandos de compensacao (RefundPayment, ReleaseInventory, CancelShipping) e replies correspondentes. Worker do orquestrador processa falhas e cascata de compensacao. Service workers despacham comandos forward e de compensacao via message attribute CommandType. Simulacao de falha via header X-Simulate-Failure propagado do OrderService ao orquestrador e aos comandos SQS. CompensationDataJson na SagaInstance armazena metadados de steps completos para uso nos comandos de compensacao.
 - **2026-03-28:** Feature idempotency implementada. IdempotencyStore centralizado em Shared/Idempotency com Npgsql direto (sem EF Core). Tabela idempotency_keys (idempotency_key PK, saga_id, result_json, created_at) criada automaticamente via EnsureTableAsync. Aplicada nos 3 service workers (Payment, Inventory, Shipping) para comandos forward E de compensacao. Cada handler verifica a chave antes de processar — se ja processado, reenvia o reply anterior sem reprocessar.
 
+- **2026-03-28:** Feature dlq-visibility implementada. Endpoint GET /dlq no SagaOrchestrator lista mensagens de todas as 8 DLQs (peek com VisibilityTimeout=0). Endpoint POST /dlq/redrive reenvia mensagem da DLQ para a fila original e deleta da DLQ. SqsConfig ampliado com AllDlqNames (array das 8 DLQs) e DlqToOriginalQueue (mapeamento DLQ->fila original). M3 concluido.
+
 ## Blockers
 
 _Nenhum no momento._

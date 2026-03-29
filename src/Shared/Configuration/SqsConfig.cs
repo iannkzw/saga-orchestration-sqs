@@ -13,4 +13,21 @@ public static class SqsConfig
 
     public const string ShippingCommands = "shipping-commands";
     public const string ShippingReplies = "shipping-replies";
+
+    // Nomes de todas as DLQs (sufixo "-dlq" para cada fila)
+    public static readonly string[] AllDlqNames =
+    [
+        $"{OrderCommands}-dlq",
+        $"{SagaCommands}-dlq",
+        $"{PaymentCommands}-dlq",
+        $"{PaymentReplies}-dlq",
+        $"{InventoryCommands}-dlq",
+        $"{InventoryReplies}-dlq",
+        $"{ShippingCommands}-dlq",
+        $"{ShippingReplies}-dlq"
+    ];
+
+    // Mapeamento DLQ -> fila original
+    public static readonly Dictionary<string, string> DlqToOriginalQueue = AllDlqNames
+        .ToDictionary(dlq => dlq, dlq => dlq[..^4]); // remove "-dlq"
 }
