@@ -1,7 +1,9 @@
 # Roadmap
 
-**Current Milestone:** M4 - Observabilidade e Documentacao
+**Current Milestone:** M5 - Concorrencia entre Sagas
 **Status:** Planned
+
+**M4 - Observabilidade e Documentacao:** DONE
 
 ---
 
@@ -108,15 +110,16 @@
 - Instrumentacao automatica HTTP (AspNetCore + HttpClient)
 - ActivitySource compartilhada "SagaOrchestration" com factory methods padronizados
 
-**docs-didaticos** - PLANNED
+**docs-didaticos** - DONE
 
-- Fundamentos de Sagas (Saga vs 2PC, orquestrada vs coreografada)
-- Maquina de Estados da Saga (diagrama + explicacao)
-- Padroes de Compensacao
-- Idempotencia e Retry
-- SQS, DLQ e Visibility Timeout
-- Concorrencia entre Sagas (race conditions, pessimistic vs optimistic locking, estrategias de resolucao)
-- Guia Pratico (passo a passo para reproduzir e testar cenarios)
+- docs/01-fundamentos-sagas.md: Saga vs 2PC, orquestrada vs coreografada, justificativa da escolha
+- docs/02-maquina-de-estados.md: Diagrama completo, estados forward/compensacao/terminal, implementacao pura estatica
+- docs/03-padroes-compensacao.md: Cascata reversa, CompensationDataJson, HandleFailureAsync/HandleCompensationReplyAsync
+- docs/04-idempotencia-retry.md: IdempotencyStore (Npgsql), chaves por saga, fluxo com idempotency hit, visibility timeout
+- docs/05-sqs-dlq-visibility.md: Topologia de filas, RedrivePolicy, GET /dlq e POST /dlq/redrive com exemplos
+- docs/06-opentelemetry-traces.md: W3C TraceContext sobre SQS, SagaActivitySource, AddSagaTracing, exporters
+- docs/07-concorrencia-sagas.md: Race conditions, pessimistic vs optimistic locking, comparativo, estrategias (teorico/M5)
+- docs/08-guia-pratico.md: Passo a passo completo para todos os cenarios com curl, troubleshooting
 
 **readme-walkthrough** - PLANNED
 
