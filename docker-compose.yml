@@ -150,6 +150,9 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      # INVENTORY_LOCKING_ENABLED=true  → SELECT FOR UPDATE (padrao, comportamento correto)
+      # INVENTORY_LOCKING_ENABLED=false → sem lock, para demonstrar race condition (M5)
+      - INVENTORY_LOCKING_ENABLED=${INVENTORY_LOCKING_ENABLED:-true}
     depends_on:
       localstack:
         condition: service_healthy

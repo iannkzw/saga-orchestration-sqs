@@ -1,7 +1,7 @@
 # Roadmap
 
 **Current Milestone:** M5 - Concorrencia entre Sagas
-**Status:** Planned
+**Status:** DONE
 
 **M4 - Observabilidade e Documentacao:** DONE
 
@@ -137,18 +137,20 @@
 
 ### Features
 
-**resource-locking** - PLANNED
+**resource-locking** - DONE
 
-- Pessimistic lock (SELECT ... FOR UPDATE) no InventoryService ao reservar estoque
-- Demonstracao de race condition sem lock (antes) vs com lock (depois)
-- Teste com 2+ pedidos simultaneos sobre o mesmo produto
-- Documentacao didatica explicando as estrategias (pessimistic vs optimistic locking, idempotency como complemento)
+- InventoryRepository com Npgsql direto: tabelas inventory + inventory_reservations
+- SELECT FOR UPDATE (useLock=true) vs sem lock (useLock=false) controlado por INVENTORY_LOCKING_ENABLED
+- Worker processa mensagens em paralelo (Task.WhenAll) para expor race conditions reais
+- Endpoints GET /inventory/stock/{productId} e POST /inventory/reset para demos
+- INVENTORY_LOCKING_ENABLED env var no docker-compose.yml (default: true)
 
-**concurrent-saga-demo** - PLANNED
+**concurrent-saga-demo** - DONE
 
-- Script de teste que dispara N pedidos concorrentes via curl/script
-- Logs mostrando a ordem de execucao e resolucao de conflitos
-- Cenario onde estoque e insuficiente para todos — compensacoes parciais
+- Script bash scripts/concurrent-saga-demo.sh com opcoes --no-lock, --pedidos N, --estoque N
+- Reset de estoque + 5 pedidos paralelos + polling de estado das sagas
+- Cenario: estoque=2, 5 pedidos → 2 Completed + 3 Failed com compensacao (COM lock)
+- docs/07-concorrencia-sagas.md atualizado com implementacao real, logs e saidas esperadas
 
 ---
 
