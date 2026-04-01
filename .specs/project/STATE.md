@@ -16,6 +16,10 @@
 
 - **2026-03-29:** Feature otel-traces implementada. OpenTelemetry SDK 1.15.0 integrado em todos os 5 servicos via Shared. Trace propagation via W3C TraceContext em SQS message attributes (SqsTracePropagation helper). SagaActivitySource com factory methods para spans padronizados (send/process command/reply). Console exporter como default, OTLP configuravel via env var. Instrumentacao automatica AspNetCore + HttpClient. Pacotes Microsoft.Extensions atualizados de preview para 10.0.0 estavel (compatibilidade com OTel 1.15.0). Decisao: sem instrumentacao de DB (EF Core/Npgsql) — complexidade sem valor didatico.
 
+- **2026-03-31:** Feature resource-locking implementada. InventoryRepository com Npgsql direto: tabelas inventory (product_id, name, quantity) e inventory_reservations (reservation_id, product_id, quantity, saga_id). TryReserveAsync com SELECT FOR UPDATE (useLock=true) ou sem lock + delay 150ms (useLock=false) para expor TOCTOU. ReleaseAsync para compensacao. Worker atualizado para processar mensagens em paralelo (Task.WhenAll) — critico para demo de race condition. Endpoints /inventory/stock e /inventory/reset adicionados. INVENTORY_LOCKING_ENABLED env var no docker-compose.yml.
+
+- **2026-03-31:** Feature concurrent-saga-demo implementada. Script bash scripts/concurrent-saga-demo.sh com opcoes --no-lock, --pedidos N, --estoque N. Reseta estoque, dispara pedidos paralelos, poll de sagas e diagnostico de overbooking. docs/07-concorrencia-sagas.md reescrito com implementacao real, schema SQL, logs esperados e instrucoes de execucao. M5 concluido.
+
 ## Blockers
 
 _Nenhum no momento._
@@ -30,6 +34,12 @@ _Nenhum no momento._
 - **Dockerfile com Shared:** Build context precisa ser raiz do repo (nao src/Service) para copiar Directory.Build.props e Shared
 - **OpenTelemetry 1.15.0 + .NET 10:** OTel 1.15.0 depende de Microsoft.Extensions.*.Abstractions 10.0.0 (estavel). Versoes preview (10.0.0-preview.3) causam NU1605 (downgrade detectado). Atualizar para 10.0.0 estavel resolve
 - **SQS trace propagation manual:** AWSSDK.SQS nao tem instrumentacao OTel nativa. Necessario inject/extract manual de traceparent/tracestate via MessageAttributes usando Propagators.DefaultTextMapPropagator
+
+## Lessons Learned (M5)
+
+- **Task.WhenAll no SQS worker:** Para expor race conditions realmente, o worker precisa processar mensagens do mesmo batch em paralelo. O foreach sequencial nunca gera concorrencia real, mesmo sem lock. Task.WhenAll com mensagens do mesmo ReceiveMessage batch e a abordagem correta.
+- **Delay artificial como janela TOCTOU:** Adicionar Task.Delay(150ms) entre SELECT e UPDATE (modo sem lock) garante que multiplas transacoes paralelas vejam o mesmo valor antes de qualquer UPDATE. Sem o delay, a velocidade do Npgsql pode serializar naturalmente mesmo sem FOR UPDATE.
+- **inventory_reservations como ponte de compensacao:** Armazenar reservation_id na tabela inventory_reservations com referencia ao product_id e qty permite que a compensacao (ReleaseInventory) restaure exatamente o estoque correto sem depender de logica no orquestrador.
 
 ## Deferred Ideas
 
