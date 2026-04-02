@@ -15,7 +15,8 @@ public class Worker : BackgroundService
     private readonly IAmazonSQS _sqs;
     private readonly IdempotencyStore _idempotencyStore;
     private readonly InventoryRepository _inventoryRepository;
-    private readonly bool _lockingEnabled;
+    private readonly string _lockingMode;
+    private readonly int _optimisticMaxRetries;
 
     public Worker(
         ILogger<Worker> logger,
@@ -28,16 +29,31 @@ public class Worker : BackgroundService
         _sqs = sqs;
         _idempotencyStore = idempotencyStore;
         _inventoryRepository = inventoryRepository;
-        // INVENTORY_LOCKING_ENABLED=true  → SELECT FOR UPDATE (padrao, comportamento correto)
-        // INVENTORY_LOCKING_ENABLED=false → sem lock (demonstra race condition / overbooking)
-        _lockingEnabled = configuration.GetValue<bool>("INVENTORY_LOCKING_ENABLED", true);
+
+        // INVENTORY_LOCKING_MODE=pessimistic → SELECT FOR UPDATE (padrão, sem overbooking)
+        // INVENTORY_LOCKING_MODE=optimistic  → version check + retry automático
+        // INVENTORY_LOCKING_MODE=none        → sem lock + delay (demonstra race condition)
+        // Fallback: INVENTORY_LOCKING_ENABLED=true/false (compatibilidade com M5)
+        var lockingMode = configuration.GetValue<string>("INVENTORY_LOCKING_MODE");
+        if (string.IsNullOrEmpty(lockingMode))
+        {
+            var legacyEnabled = configuration.GetValue<bool>("INVENTORY_LOCKING_ENABLED", true);
+            lockingMode = legacyEnabled ? "pessimistic" : "none";
+        }
+        _lockingMode = lockingMode.ToLowerInvariant();
+        _optimisticMaxRetries = configuration.GetValue<int>("INVENTORY_OPTIMISTIC_MAX_RETRIES", 3);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var modeDescription = _lockingMode switch
+        {
+            "optimistic" => $"otimista (version check, max retries={_optimisticMaxRetries})",
+            "pessimistic" => "pessimista (FOR UPDATE)",
+            _ => "sem lock (demonstracao de race condition)"
+        };
         _logger.LogInformation(
-            "InventoryService worker iniciado — locking={LockMode}",
-            _lockingEnabled ? "FOR UPDATE (pessimista)" : "SEM LOCK (demonstracao de race condition)");
+            "InventoryService worker iniciado — locking={LockMode}", modeDescription);
 
         var commandsQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.InventoryCommands, stoppingToken)).QueueUrl;
         var repliesQueueUrl = (await _sqs.GetQueueUrlAsync(SqsConfig.InventoryReplies, stoppingToken)).QueueUrl;
@@ -135,11 +151,18 @@ public class Worker : BackgroundService
         else
         {
             var newReservationId = Guid.NewGuid().ToString();
-            // useLock=true  → SELECT FOR UPDATE: PostgreSQL serializa o acesso, sem overbooking
-            // useLock=false → SELECT sem lock + delay: expoe a janela TOCTOU com processamento paralelo
-            var (ok, err) = await _inventoryRepository.TryReserveAsync(
-                firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
-                useLock: _lockingEnabled, ct);
+            var (ok, err) = _lockingMode switch
+            {
+                "optimistic" => await _inventoryRepository.TryReserveOptimisticAsync(
+                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                    _optimisticMaxRetries, ct),
+                "pessimistic" => await _inventoryRepository.TryReserveAsync(
+                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                    useLock: true, ct),
+                _ => await _inventoryRepository.TryReserveAsync(
+                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                    useLock: false, ct)
+            };
             success = ok;
             reservationId = ok ? newReservationId : null;
             errorMessage = err;

@@ -161,6 +161,27 @@
 
 ---
 
+---
+
+## M6 - Optimistic Locking (extensao do M5)
+
+**Goal:** Demonstrar locking otimista como alternativa ao pessimistic locking com comportamento, throughput e complexidade diferentes sob concorrencia real.
+**Status:** DONE
+
+### Features
+
+**optimistic-locking** - DONE
+
+- Coluna `version INTEGER NOT NULL DEFAULT 0` na tabela `inventory` (ADD COLUMN IF NOT EXISTS)
+- `TryReserveOptimisticAsync`: SELECT sem lock + UPDATE WHERE version = @expected + retry automatico
+- `INVENTORY_LOCKING_MODE` (pessimistic|optimistic|none) substitui `INVENTORY_LOCKING_ENABLED` (mantida como fallback)
+- `INVENTORY_OPTIMISTIC_MAX_RETRIES` configuravel (default: 3)
+- Worker atualizado com switch expression para despachar ao metodo correto
+- `ResetStockAsync` zera `version=0` para demos reproduziveis
+- docs/07-concorrencia-sagas.md: secao de implementacao real do modo otimista com logs esperados
+
+---
+
 ## Future Considerations
 
 - Saga coreografada como PoC complementar para comparacao
@@ -168,4 +189,3 @@
 - Testes de carga para demonstrar comportamento sob concorrencia
 - Timeout e retry policies configuráveis no orquestrador
 - Versionamento de comandos/eventos (schema evolution)
-- Optimistic concurrency como alternativa ao pessimistic locking (version column)

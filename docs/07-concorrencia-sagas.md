@@ -1,6 +1,6 @@
 # Concorrencia entre Sagas
 
-> **Status M5:** Implementado. Este documento cobre tanto os conceitos quanto a implementacao real no `InventoryService`.
+> **Status M5/M6:** Implementado. Este documento cobre tanto os conceitos quanto a implementacao real no `InventoryService` — pessimistic locking (M5) e optimistic locking (M6).
 
 ---
 
@@ -186,15 +186,15 @@ ON CONFLICT (product_id) DO NOTHING;
 
 ---
 
-## Estrategia 2: Optimistic Locking
+## Estrategia 2: Optimistic Locking (implementado)
 
-O **locking otimista** assume que conflitos sao raros e verifica a consistencia apenas no momento da escrita.
+O **locking otimista** assume que conflitos sao raros e verifica a consistencia apenas no momento da escrita, sem bloquear nenhuma transacao.
 
 ### Como funciona: Version Column
 
 ```sql
--- Schema com coluna de versao
-ALTER TABLE inventory ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+-- Coluna version adicionada automaticamente pelo EnsureTablesAsync
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
 ```
 
 ```mermaid
@@ -204,25 +204,122 @@ sequenceDiagram
     participant SB as Saga B
 
     SA->>DB: SELECT quantity, version FROM inventory WHERE product_id='PROD-001'
-    Note over SA: quantity=2, version=5
+    Note over SA: quantity=2, version=0
     SB->>DB: SELECT quantity, version FROM inventory WHERE product_id='PROD-001'
-    Note over SB: quantity=2, version=5
+    Note over SB: quantity=2, version=0
 
-    SA->>DB: UPDATE inventory SET quantity=1, version=6\nWHERE product_id='PROD-001' AND version=5
+    SA->>DB: UPDATE inventory SET quantity=1, version=1\nWHERE product_id='PROD-001' AND version=0
     Note over DB: 1 linha afetada ✓ (version bateu)
 
-    SB->>DB: UPDATE inventory SET quantity=1, version=6\nWHERE product_id='PROD-001' AND version=5
-    Note over DB: 0 linhas afetadas! (version agora e 6, nao 5)
-    Note over SB: Conflito detectado → retry ou falha
+    SB->>DB: UPDATE inventory SET quantity=1, version=1\nWHERE product_id='PROD-001' AND version=0
+    Note over DB: 0 linhas afetadas! (version agora e 1, nao 0)
+    Note over SB: Conflito detectado → retry automatico
+    SB->>DB: SELECT quantity, version (releitura)
+    Note over SB: quantity=1, version=1
+    SB->>DB: UPDATE ... WHERE version=1
+    Note over DB: 1 linha afetada ✓
 ```
+
+### Implementacao real: TryReserveOptimisticAsync
+
+```csharp
+// src/InventoryService/InventoryRepository.cs
+public async Task<(bool Success, string? ErrorMessage)> TryReserveOptimisticAsync(
+    string productId, int quantity, string reservationId, Guid sagaId,
+    int maxRetries = 3, CancellationToken ct = default)
+{
+    var totalAttempts = maxRetries + 1;
+
+    for (var attempt = 1; attempt <= totalAttempts; attempt++)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        // 1. Leitura sem lock — captura quantity e version atuais
+        await using var selectCmd = conn.CreateCommand();
+        selectCmd.CommandText =
+            "SELECT quantity, version FROM inventory WHERE product_id = @productId";
+        // ... (ler currentStock e currentVersion)
+
+        if (currentStock < quantity)
+            return (false, $"Estoque insuficiente: disponivel={currentStock}");
+
+        // 2. UPDATE com verificacao de versao — se outra transacao chegou primeiro,
+        //    version nao bate e rowsAffected == 0
+        await using var updateCmd = conn.CreateCommand();
+        updateCmd.CommandText = """
+            UPDATE inventory
+            SET quantity = quantity - @qty, version = version + 1
+            WHERE product_id = @productId AND version = @expectedVersion
+            """;
+
+        var rowsAffected = await updateCmd.ExecuteNonQueryAsync(ct);
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            // 3. Conflito: reinicia o loop com releitura do banco
+            continue;
+        }
+
+        // 4. Sucesso: registrar reserva e commitar
+        // INSERT INTO inventory_reservations ...
+        await tx.CommitAsync(ct);
+        return (true, null);
+    }
+
+    // 5. Retries esgotados: falha normal (nao excecao)
+    return (false, $"Conflito de versao: {totalAttempts} tentativas sem sucesso");
+}
+```
+
+### Configuracao
+
+Ativar via env var `INVENTORY_LOCKING_MODE=optimistic`:
+
+```yaml
+# docker-compose.yml — inventory-service
+environment:
+  - INVENTORY_LOCKING_MODE=optimistic
+  # - INVENTORY_OPTIMISTIC_MAX_RETRIES=3  # default: 3
+```
+
+### Logs do InventoryService (modo otimista)
+
+```
+# Startup
+InventoryService worker iniciado — locking=otimista (version check, max retries=3)
+
+# Saga A e B leem ao mesmo tempo (sem bloqueio):
+[Inventory][Otimista] SELECT: produto=PROD-001, estoque=2, version=0, tentativa=1/4
+[Inventory][Otimista] SELECT: produto=PROD-001, estoque=2, version=0, tentativa=1/4
+
+# Saga A atualiza primeiro — version bate:
+[Inventory][Otimista] Reserva confirmada: produto=PROD-001, qty=1, version=1, reservationId=a1b2...
+
+# Saga B detecta conflito — version=0 nao bate mais (e agora 1):
+[Inventory][Otimista] Conflito de versao: produto=PROD-001, version esperada=0, tentativa=1/4
+
+# Saga B faz retry — rele o estado atual:
+[Inventory][Otimista] SELECT: produto=PROD-001, estoque=1, version=1, tentativa=2/4
+[Inventory][Otimista] Reserva confirmada: produto=PROD-001, qty=1, version=2, reservationId=c3d4...
+
+# A partir daqui, estoque=0. Proximas sagas falham por estoque insuficiente:
+[Inventory][Otimista] SELECT: produto=PROD-001, estoque=0, version=2, tentativa=1/4
+[Inventory][Otimista] Estoque insuficiente: produto=PROD-001, disponivel=0, solicitado=1
+```
+
+### Pros e Contras
 
 | Aspecto | Avaliacao |
 |---------|-----------|
-| **Throughput** | Alto — sem bloqueios |
-| **Latencia** | Baixa em cenarios de baixa concorrencia |
+| **Throughput** | Alto — sem bloqueios entre transacoes |
+| **Latencia** | Baixa quando conflitos sao raros |
 | **Complexidade** | Media — logica de retry necessaria |
 | **Risco de deadlock** | Zero |
-| **Comportamento sob alta concorrencia** | Degradacao: muitos retries |
+| **Comportamento sob alta concorrencia** | Degradacao gradual: mais conflitos = mais retries |
+| **Resultado quando retries esgotam** | Falha normal → compensacao executada pelo orquestrador |
 
 ---
 
@@ -289,37 +386,44 @@ SELECT pg_advisory_xact_lock(hashtext('PROD-001'));
 
 ---
 
-## Demo Pratico: M5 concurrent-saga-demo
+## Demo Pratico: concurrent-saga-demo (3 modos)
 
 ### Configuracao
 
-O comportamento de locking e controlado pela variavel de ambiente `INVENTORY_LOCKING_ENABLED`:
+O comportamento de locking e controlado pela variavel de ambiente `INVENTORY_LOCKING_MODE`:
 
 ```yaml
 # docker-compose.yml — inventory-service
 environment:
-  - INVENTORY_LOCKING_ENABLED=true   # padrao: FOR UPDATE
-  # - INVENTORY_LOCKING_ENABLED=false  # para demo de race condition
+  - INVENTORY_LOCKING_MODE=pessimistic  # padrao: FOR UPDATE
+  # - INVENTORY_LOCKING_MODE=optimistic  # version check + retry
+  # - INVENTORY_LOCKING_MODE=none        # sem lock (demonstra race condition)
+  # - INVENTORY_OPTIMISTIC_MAX_RETRIES=3 # retries no modo optimistic (default: 3)
 ```
 
 O log de startup do InventoryService confirma o modo ativo:
 
 ```
-InventoryService worker iniciado — locking=FOR UPDATE (pessimista)
+InventoryService worker iniciado — locking=pessimista (FOR UPDATE)
 # ou
-InventoryService worker iniciado — locking=SEM LOCK (demonstracao de race condition)
+InventoryService worker iniciado — locking=otimista (version check, max retries=3)
+# ou
+InventoryService worker iniciado — locking=sem lock (demonstracao de race condition)
 ```
 
 ### Executar o demo
 
 ```bash
-# Cenario COM lock (padrao): 2 Completed + 3 Failed
+# Modo pessimista (padrao): 2 Completed + 3 Failed, sem overbooking
 bash scripts/concurrent-saga-demo.sh
 
-# Cenario SEM lock: resultado imprevisivel (overbooking possivel)
-# 1. Configurar no .env: INVENTORY_LOCKING_ENABLED=false
-# 2. Reiniciar o servico: docker compose up -d inventory-service
+# Modo otimista: mesmo resultado correto, via retries
+# 1. Editar docker-compose.yml: INVENTORY_LOCKING_MODE=optimistic
+# 2. Reiniciar: docker compose up -d inventory-service
 # 3. Executar:
+bash scripts/concurrent-saga-demo.sh
+
+# Modo sem lock: resultado imprevisivel (overbooking possivel)
 bash scripts/concurrent-saga-demo.sh --no-lock
 ```
 
