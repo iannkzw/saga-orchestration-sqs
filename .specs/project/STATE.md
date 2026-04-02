@@ -22,6 +22,8 @@
 
 - **2026-04-01:** Feature demo-scripts implementada. `scripts/concurrent-saga-demo.sh` reescrito corrigindo 3 bugs (loop duplo, --no-lock sem efeito, RAW_RESPONSES dead code). `scripts/happy-path-demo.sh` criado com 4 cenarios sequenciais (happy path, falha pagamento, falha inventario, falha shipping). Funcoes compartilhadas extraidas para `scripts/lib/common.sh` (check_health, poll_saga, get_transitions, get_stock, reset_stock).
 
+- **2026-04-02:** Feature readme-walkthrough implementada. README.md criado na raiz com: visão geral do projeto, pré-requisitos, setup rápido com saída esperada, 4 demos via curl (happy path, falha pagamento, falha inventário, falha shipping), referência aos scripts automatizados, demo de concorrência com/sem lock, DLQ visibility, estrutura de diretórios comentada, tabela de portas e sumário dos 8 docs didáticos. Todos os milestones M1–M5 + README concluídos.
+
 ## Blockers
 
 _Nenhum no momento._
