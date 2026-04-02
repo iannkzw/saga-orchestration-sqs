@@ -45,6 +45,8 @@ _Nenhum no momento._
 - **Delay artificial como janela TOCTOU:** Adicionar Task.Delay(150ms) entre SELECT e UPDATE (modo sem lock) garante que multiplas transacoes paralelas vejam o mesmo valor antes de qualquer UPDATE. Sem o delay, a velocidade do Npgsql pode serializar naturalmente mesmo sem FOR UPDATE.
 - **inventory_reservations como ponte de compensacao:** Armazenar reservation_id na tabela inventory_reservations com referencia ao product_id e qty permite que a compensacao (ReleaseInventory) restaure exatamente o estoque correto sem depender de logica no orquestrador.
 
+- **2026-04-02:** Feature optimistic-locking implementada. Coluna `version INTEGER NOT NULL DEFAULT 0` adicionada via `ALTER TABLE IF NOT EXISTS` no `EnsureTablesAsync`. `TryReserveOptimisticAsync` com loop de retry (SELECT sem lock + UPDATE WHERE version = @expected; rowsAffected==0 → retry). Env var `INVENTORY_LOCKING_MODE` (pessimistic|optimistic|none) substitui `INVENTORY_LOCKING_ENABLED` (mantida como fallback de compatibilidade). `INVENTORY_OPTIMISTIC_MAX_RETRIES` controla tentativas (default: 3). Worker atualizado com switch expression para despachar ao método correto. `ResetStockAsync` agora zera `version=0`. docs/07-concorrencia-sagas.md atualizado com implementacao real do modo otimista e logs esperados.
+
 ## Deferred Ideas
 
 _Ver "Future Considerations" no ROADMAP.md._

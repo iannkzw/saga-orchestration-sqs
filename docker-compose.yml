@@ -150,9 +150,12 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      # INVENTORY_LOCKING_ENABLED=true  → SELECT FOR UPDATE (padrao, comportamento correto)
-      # INVENTORY_LOCKING_ENABLED=false → sem lock, para demonstrar race condition (M5)
-      - INVENTORY_LOCKING_ENABLED=${INVENTORY_LOCKING_ENABLED:-true}
+      # INVENTORY_LOCKING_MODE=pessimistic → SELECT FOR UPDATE (padrao, sem overbooking)
+      # INVENTORY_LOCKING_MODE=optimistic  → version check + retry automatico
+      # INVENTORY_LOCKING_MODE=none        → sem lock + delay 150ms (demonstra race condition)
+      # Compatibilidade: INVENTORY_LOCKING_ENABLED=true/false ainda funciona como fallback
+      - INVENTORY_LOCKING_MODE=${INVENTORY_LOCKING_MODE:-pessimistic}
+      # - INVENTORY_OPTIMISTIC_MAX_RETRIES=3  # default: 3 (so necessario no modo optimistic)
     depends_on:
       localstack:
         condition: service_healthy

@@ -29,6 +29,8 @@ public class InventoryRepository
                 quantity    INTEGER NOT NULL DEFAULT 0
             );
 
+            ALTER TABLE inventory ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
+
             CREATE TABLE IF NOT EXISTS inventory_reservations (
                 reservation_id  VARCHAR(256) PRIMARY KEY,
                 product_id      VARCHAR(100) NOT NULL REFERENCES inventory(product_id),
@@ -141,6 +143,119 @@ public class InventoryRepository
     }
 
     /// <summary>
+    /// Tenta reservar estoque usando locking otimista (controle de versão).
+    /// Lê quantity e version sem lock; faz UPDATE com WHERE version = @expected.
+    /// Se rowsAffected == 0 (conflito de versão), faz retry até maxRetries vezes.
+    /// </summary>
+    public async Task<(bool Success, string? ErrorMessage)> TryReserveOptimisticAsync(
+        string productId,
+        int quantity,
+        string reservationId,
+        Guid sagaId,
+        int maxRetries = 3,
+        CancellationToken ct = default)
+    {
+        var totalAttempts = maxRetries + 1;
+
+        for (var attempt = 1; attempt <= totalAttempts; attempt++)
+        {
+            await using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+
+            try
+            {
+                await using var selectCmd = conn.CreateCommand();
+                selectCmd.Transaction = tx;
+                selectCmd.CommandText =
+                    "SELECT quantity, version FROM inventory WHERE product_id = @productId";
+                selectCmd.Parameters.AddWithValue("productId", productId);
+
+                int currentStock;
+                int currentVersion;
+
+                await using (var reader = await selectCmd.ExecuteReaderAsync(ct))
+                {
+                    if (!await reader.ReadAsync(ct))
+                    {
+                        await reader.CloseAsync();
+                        await tx.RollbackAsync(ct);
+                        return (false, $"Produto '{productId}' nao encontrado no inventario");
+                    }
+                    currentStock = reader.GetInt32(0);
+                    currentVersion = reader.GetInt32(1);
+                }
+
+                _logger.LogInformation(
+                    "[Inventory][Otimista] SELECT: produto={ProductId}, estoque={Stock}, version={Version}, tentativa={Attempt}/{Total}",
+                    productId, currentStock, currentVersion, attempt, totalAttempts);
+
+                if (currentStock < quantity)
+                {
+                    await tx.RollbackAsync(ct);
+                    _logger.LogWarning(
+                        "[Inventory][Otimista] Estoque insuficiente: produto={ProductId}, disponivel={Stock}, solicitado={Qty}",
+                        productId, currentStock, quantity);
+                    return (false, $"Estoque insuficiente: disponivel={currentStock}, solicitado={quantity}");
+                }
+
+                await using var updateCmd = conn.CreateCommand();
+                updateCmd.Transaction = tx;
+                updateCmd.CommandText = """
+                    UPDATE inventory
+                    SET quantity = quantity - @qty, version = version + 1
+                    WHERE product_id = @productId AND version = @expectedVersion
+                    """;
+                updateCmd.Parameters.AddWithValue("qty", quantity);
+                updateCmd.Parameters.AddWithValue("productId", productId);
+                updateCmd.Parameters.AddWithValue("expectedVersion", currentVersion);
+
+                var rowsAffected = await updateCmd.ExecuteNonQueryAsync(ct);
+
+                if (rowsAffected == 0)
+                {
+                    await tx.RollbackAsync(ct);
+                    _logger.LogWarning(
+                        "[Inventory][Otimista] Conflito de versao: produto={ProductId}, version esperada={Version}, tentativa={Attempt}/{Total}",
+                        productId, currentVersion, attempt, totalAttempts);
+                    continue;
+                }
+
+                await using var insertCmd = conn.CreateCommand();
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = """
+                    INSERT INTO inventory_reservations (reservation_id, product_id, quantity, saga_id)
+                    VALUES (@reservationId, @productId, @quantity, @sagaId)
+                    """;
+                insertCmd.Parameters.AddWithValue("reservationId", reservationId);
+                insertCmd.Parameters.AddWithValue("productId", productId);
+                insertCmd.Parameters.AddWithValue("quantity", quantity);
+                insertCmd.Parameters.AddWithValue("sagaId", sagaId);
+                await insertCmd.ExecuteNonQueryAsync(ct);
+
+                await tx.CommitAsync(ct);
+
+                _logger.LogInformation(
+                    "[Inventory][Otimista] Reserva confirmada: produto={ProductId}, qty={Qty}, version={NewVersion}, reservationId={ReservationId}",
+                    productId, quantity, currentVersion + 1, reservationId);
+
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+                _logger.LogError(ex, "[Inventory][Otimista] Erro ao reservar estoque: produto={ProductId}, tentativa={Attempt}", productId, attempt);
+                return (false, $"Erro interno: {ex.Message}");
+            }
+        }
+
+        _logger.LogWarning(
+            "[Inventory][Otimista] Retries esgotados: produto={ProductId}, {Total} tentativas sem sucesso",
+            productId, totalAttempts);
+        return (false, $"Conflito de versao: {totalAttempts} tentativas sem sucesso");
+    }
+
+    /// <summary>
     /// Libera uma reserva existente, restaurando o estoque no produto.
     /// </summary>
     public async Task<bool> ReleaseAsync(string reservationId, CancellationToken ct = default)
@@ -221,7 +336,7 @@ public class InventoryRepository
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            UPDATE inventory SET quantity = @quantity WHERE product_id = @productId;
+            UPDATE inventory SET quantity = @quantity, version = 0 WHERE product_id = @productId;
             DELETE FROM inventory_reservations WHERE product_id = @productId;
             """;
         cmd.Parameters.AddWithValue("quantity", quantity);
