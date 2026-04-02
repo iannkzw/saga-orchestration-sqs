@@ -20,6 +20,8 @@
 
 - **2026-03-31:** Feature concurrent-saga-demo implementada. Script bash scripts/concurrent-saga-demo.sh com opcoes --no-lock, --pedidos N, --estoque N. Reseta estoque, dispara pedidos paralelos, poll de sagas e diagnostico de overbooking. docs/07-concorrencia-sagas.md reescrito com implementacao real, schema SQL, logs esperados e instrucoes de execucao. M5 concluido.
 
+- **2026-04-01:** Feature demo-scripts implementada. `scripts/concurrent-saga-demo.sh` reescrito corrigindo 3 bugs (loop duplo, --no-lock sem efeito, RAW_RESPONSES dead code). `scripts/happy-path-demo.sh` criado com 4 cenarios sequenciais (happy path, falha pagamento, falha inventario, falha shipping). Funcoes compartilhadas extraidas para `scripts/lib/common.sh` (check_health, poll_saga, get_transitions, get_stock, reset_stock).
+
 ## Blockers
 
 _Nenhum no momento._

@@ -152,6 +152,12 @@
 - Cenario: estoque=2, 5 pedidos → 2 Completed + 3 Failed com compensacao (COM lock)
 - docs/07-concorrencia-sagas.md atualizado com implementacao real, logs e saidas esperadas
 
+**demo-scripts** - DONE
+
+- `scripts/lib/common.sh`: funcoes compartilhadas (check_health, poll_saga, get_transitions, get_stock, reset_stock)
+- `scripts/concurrent-saga-demo.sh` reescrito: corrige loop duplo (Bug 1), deteccao real de lock via docker logs (Bug 2), remove dead code RAW_RESPONSES (Bug 3)
+- `scripts/happy-path-demo.sh`: 4 cenarios sequenciais com verificacoes de transicoes e estoque
+
 ---
 
 ## Future Considerations
