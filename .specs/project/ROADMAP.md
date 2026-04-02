@@ -121,12 +121,13 @@
 - docs/07-concorrencia-sagas.md: Race conditions, pessimistic vs optimistic locking, comparativo, estrategias (teorico/M5)
 - docs/08-guia-pratico.md: Passo a passo completo para todos os cenarios com curl, troubleshooting
 
-**readme-walkthrough** - PLANNED
+**readme-walkthrough** - DONE
 
 - README.md com walkthrough canonico da demo
 - Instrucoes de setup (pre-requisitos, docker compose up)
-- Exemplos de curl para testar happy path e cenarios de falha
-- Screenshots/logs dos resultados esperados
+- Exemplos de curl para happy path, falha/compensacao, DLQ visibility
+- Script automatizado (happy-path-demo.sh) e demo de concorrencia
+- Estrutura de diretorios comentada, tabela de portas, links para 8 docs
 
 ---
 
