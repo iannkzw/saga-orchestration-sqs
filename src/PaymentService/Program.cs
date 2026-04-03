@@ -6,7 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHostedService<PaymentService.Worker>();
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
-builder.Services.AddSagaTracing("PaymentService");
+builder.Services.AddSagaTracing("payment-service");
+builder.Services.AddSagaLogging("payment-service");
 
 var app = builder.Build();
 

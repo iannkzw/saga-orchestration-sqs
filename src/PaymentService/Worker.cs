@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -87,6 +88,8 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(ProcessPayment), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("payment.amount", command.Amount.ToString("F2"));
 
         _logger.LogInformation(
             "Comando recebido: ProcessPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}",
@@ -130,6 +133,11 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
+        if (reply.Success)
+            processActivity?.SetTag("payment.transaction_id", reply.TransactionId);
+        else
+            processActivity?.SetStatus(ActivityStatusCode.Error, reply.ErrorMessage);
+
         using (SagaActivitySource.StartSendReply(nameof(PaymentReply), command.SagaId.ToString()))
         {
             var replyRequest = new SendMessageRequest
@@ -143,8 +151,8 @@ public class Worker : BackgroundService
         }
 
         _logger.LogInformation(
-            "Reply enviado: PaymentReply SagaId={SagaId}, Success={Success}, TransactionId={TransactionId}",
-            reply.SagaId, reply.Success, reply.TransactionId);
+            "Reply enviado: PaymentReply SagaId={SagaId}, Success={Success}, TransactionId={TransactionId}, Error={Error}",
+            reply.SagaId, reply.Success, reply.TransactionId, reply.ErrorMessage);
     }
 
     private async Task HandleRefundPaymentAsync(Message message, string replyQueueUrl, CancellationToken ct)
@@ -153,6 +161,9 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(RefundPayment), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("payment.amount", command.Amount.ToString("F2"));
+        processActivity?.SetTag("payment.transaction_id", command.TransactionId);
 
         _logger.LogInformation(
             "Comando de compensacao: RefundPayment SagaId={SagaId}, OrderId={OrderId}, Amount={Amount}, TransactionId={TransactionId}",

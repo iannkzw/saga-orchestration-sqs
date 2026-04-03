@@ -1,9 +1,9 @@
 # Roadmap
 
-**Current Milestone:** M5 - Concorrencia entre Sagas
+**Current Milestone:** M8 - Observabilidade LGTM
 **Status:** DONE
 
-**M4 - Observabilidade e Documentacao:** DONE
+**M7 - Testes de Integracao:** DONE
 
 ---
 
@@ -201,10 +201,31 @@
 
 ---
 
+## M8 - Observabilidade LGTM
+
+**Goal:** Traces distribuidos visiveis no Grafana/Tempo e logs estruturados no Grafana/Loki, com correlacao TraceId entre ambos. OTel Collector como intermediario com tail sampling.
+**Status:** TODO
+
+### Features
+
+**otel-lgtm** - DONE
+
+- Stack LGTM (Grafana + Tempo + Loki) no Docker Compose via grafana/otel-lgtm:latest
+- OTel Collector (otel/opentelemetry-collector-contrib:latest) com tail sampling (drop /health, keep errors, sample-default)
+- Exportacao de logs via OpenTelemetry (ILogger -> OTLP gRPC -> Collector -> Loki)
+- Correlacao automatica TraceId/SpanId nos logs via provider OTel
+- Datasources Tempo + Loki provisionados no Grafana (infra/grafana/provisioning/)
+- Dashboard "Saga Orchestration - Overview" provisionado (variavel $service, paineis Traces/Logs/Trace por Saga ID)
+- Console exporter condicional — removido quando OTLP configurado
+
+---
+
 ## Future Considerations
 
+- Metricas OTel (counters, histograms, gauges) + dashboard Grafana
+- Alertas no Grafana (latencia P95, sagas em estado Failed)
+- Instrumentacao EF Core/Npgsql para traces de database
 - Saga coreografada como PoC complementar para comparacao
-- Dashboard Grafana para visualizar estado das sagas
 - Testes de carga para demonstrar comportamento sob concorrencia
 - Timeout e retry policies configuráveis no orquestrador
 - Versionamento de comandos/eventos (schema evolution)

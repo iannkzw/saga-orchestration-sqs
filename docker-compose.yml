@@ -1,5 +1,44 @@
 services:
   # ---------------------------------------------------------------------------
+  # Observabilidade (LGTM Stack + OTel Collector)
+  # ---------------------------------------------------------------------------
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: saga-lgtm
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/grafana/provisioning/datasources:/otel-lgtm/datasources
+      - ./infra/grafana/provisioning/dashboards:/otel-lgtm/dashboards-config
+      - ./infra/grafana/dashboards:/otel-lgtm/dashboards
+    networks:
+      - saga-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: saga-otelcol
+    command: ["--config=/etc/otelcol/otelcol.yaml"]
+    volumes:
+      - ./infra/otel/otelcol.yaml:/etc/otelcol/otelcol.yaml:ro
+      - ./infra/otel/processors/sampling:/etc/otelcol/processors/sampling:ro
+    environment:
+      - TRACES_URL=http://lgtm:4318/v1/traces
+      - LOGS_URL=http://lgtm:4318/v1/logs
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      lgtm:
+        condition: service_healthy
+    networks:
+      - saga-network
+
+  # ---------------------------------------------------------------------------
   # Infraestrutura
   # ---------------------------------------------------------------------------
   localstack:
@@ -63,11 +102,15 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - SAGA_ORCHESTRATOR_URL=http://saga-orchestrator:8080
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_SERVICE_NAME=order-service
     depends_on:
       localstack:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otelcol:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -92,11 +135,15 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_SERVICE_NAME=saga-orchestrator
     depends_on:
       localstack:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otelcol:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -121,11 +168,15 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_SERVICE_NAME=payment-service
     depends_on:
       localstack:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otelcol:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -156,11 +207,15 @@ services:
       # Compatibilidade: INVENTORY_LOCKING_ENABLED=true/false ainda funciona como fallback
       - INVENTORY_LOCKING_MODE=${INVENTORY_LOCKING_MODE:-pessimistic}
       # - INVENTORY_OPTIMISTIC_MAX_RETRIES=3  # default: 3 (so necessario no modo optimistic)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_SERVICE_NAME=inventory-service
     depends_on:
       localstack:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otelcol:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -185,11 +240,15 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - ConnectionStrings__SagaDb=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_SERVICE_NAME=shipping-service
     depends_on:
       localstack:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      otelcol:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s

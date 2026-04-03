@@ -17,7 +17,8 @@ builder.Services.AddHostedService<SagaOrchestrator.Worker>();
 
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
-builder.Services.AddSagaTracing("SagaOrchestrator");
+builder.Services.AddSagaTracing("saga-orchestrator");
+builder.Services.AddSagaLogging("saga-orchestrator");
 
 var connectionString = builder.Configuration.GetConnectionString("SagaDb")
     ?? "Host=localhost;Port=5432;Database=saga_db;Username=saga;Password=saga_pass";
@@ -114,11 +115,11 @@ app.MapPost("/sagas", async (HttpContext context, SagaDbContext db, IAmazonSQS s
         };
     }
 
-    using (SagaActivitySource.StartSendCommand(nameof(ProcessPayment), saga.Id.ToString()))
-    {
-        SqsTracePropagation.Inject(sendRequest.MessageAttributes);
-        await sqs.SendMessageAsync(sendRequest);
-    }
+    using var sendActivity = SagaActivitySource.StartSendCommand(nameof(ProcessPayment), saga.Id.ToString());
+    sendActivity?.SetTag("saga.order_id", saga.OrderId.ToString());
+    sendActivity?.SetTag("order.total_amount", saga.TotalAmount.ToString("F2"));
+    SqsTracePropagation.Inject(sendRequest.MessageAttributes);
+    await sqs.SendMessageAsync(sendRequest);
 
     return Results.Created($"/sagas/{saga.Id}", new
     {

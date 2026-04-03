@@ -1,0 +1,11 @@
+- name: keep-errors
+  type: status_code
+  status_code:
+    status_codes: [ERROR]
+
+- name: drop-health-checks
+  type: string_attribute
+  string_attribute:
+    key: url.path
+    values: ["/health"]
+    invert_match: true

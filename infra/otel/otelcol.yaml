@@ -1,0 +1,50 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 256
+    check_interval: 5s
+
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 5000
+    policies: ${file:/etc/otelcol/processors/sampling/policies.yaml}
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  otlphttp/traces:
+    traces_endpoint: ${env:TRACES_URL}
+    tls:
+      insecure: true
+  otlphttp/logs:
+    logs_endpoint: ${env:LOGS_URL}
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlphttp/traces, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/logs, debug]
