@@ -182,6 +182,25 @@
 
 ---
 
+## M7 - Testes de Integração
+
+**Goal:** Suite automatizada de testes que valida todos os comportamentos implementados nos M1–M5 sem depender de execução manual com curl.
+**Status:** DONE
+
+### Features
+
+**integration-tests** - DONE
+
+- Projeto xUnit `tests/IntegrationTests/` adicionado à solution
+- `DockerComposeFixture`: sobe/derruba Docker Compose via Process com polling de health checks em todos os 5 serviços
+- `SagaClient`: encapsula `POST /orders` e `GET /sagas/{id}` com polling `WaitForTerminalStateAsync` (timeout 30s)
+- `InventoryClient`: encapsula `GET /inventory/stock` e `POST /inventory/reset`
+- 7 cenários implementados: happy path, 3 compensações (payment/inventory/shipping), isolamento/idempotência, concorrência com lock, concorrência documentacional
+- `docker-compose.test.yml`: override com `INVENTORY_LOCKING_MODE=pessimistic` para testes determinísticos
+- Comando: `dotnet test tests/IntegrationTests/`
+
+---
+
 ## Future Considerations
 
 - Saga coreografada como PoC complementar para comparacao

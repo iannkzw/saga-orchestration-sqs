@@ -336,7 +336,9 @@ public class InventoryRepository
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            UPDATE inventory SET quantity = @quantity, version = 0 WHERE product_id = @productId;
+            INSERT INTO inventory (product_id, name, quantity, version)
+            VALUES (@productId, @productId, @quantity, 0)
+            ON CONFLICT (product_id) DO UPDATE SET quantity = @quantity, version = 0;
             DELETE FROM inventory_reservations WHERE product_id = @productId;
             """;
         cmd.Parameters.AddWithValue("quantity", quantity);

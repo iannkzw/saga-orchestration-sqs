@@ -59,7 +59,7 @@ public class Worker : BackgroundService
                         MessageAttributeNames = ["All"]
                     }, stoppingToken);
 
-                    foreach (var message in receiveResponse.Messages)
+                    foreach (var message in receiveResponse?.Messages ?? [])
                     {
                         await ProcessReplyAsync(message, mapping, queueUrls[mapping.QueueName], stoppingToken);
                     }
@@ -131,7 +131,8 @@ public class Worker : BackgroundService
             return;
         }
 
-        saga.TransitionTo(result.NextState, mapping.ReplyTypeName);
+        var transition = saga.TransitionTo(result.NextState, mapping.ReplyTypeName);
+        db.SagaStateTransitions.Add(transition);
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Saga {SagaId} transicionou para {State}", saga.Id, saga.CurrentState);
@@ -156,12 +157,13 @@ public class Worker : BackgroundService
         if (result is null)
         {
             _logger.LogWarning("Sem compensacao definida para estado {State}", saga.CurrentState);
-            saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:Failure");
+            db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:Failure"));
             await db.SaveChangesAsync(ct);
             return;
         }
 
-        saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Failure");
+        var transition = saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Failure");
+        db.SagaStateTransitions.Add(transition);
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Saga {SagaId} iniciou compensacao -> {State}", saga.Id, saga.CurrentState);
@@ -182,7 +184,7 @@ public class Worker : BackgroundService
         {
             _logger.LogError("Falha na compensacao da saga {SagaId} no estado {State}. Intervencao manual necessaria.",
                 saga.Id, saga.CurrentState);
-            saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:CompensationFailure");
+            db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:CompensationFailure"));
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -194,7 +196,7 @@ public class Worker : BackgroundService
             return;
         }
 
-        saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Compensated");
+        db.SagaStateTransitions.Add(saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Compensated"));
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Saga {SagaId} compensacao avancou para {State}", saga.Id, saga.CurrentState);

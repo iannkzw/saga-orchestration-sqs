@@ -75,7 +75,7 @@ public class Worker : BackgroundService
                     MessageAttributeNames = ["All"]
                 }, stoppingToken);
 
-                if (response.Messages.Count > 0)
+                if (response?.Messages is { Count: > 0 })
                 {
                     // Processar mensagens em paralelo para expor race conditions quando locking=false.
                     // Com FOR UPDATE o PostgreSQL serializa os locks — sem lock, transacoes concorrentes
@@ -142,30 +142,42 @@ public class Worker : BackgroundService
         string? reservationId = null;
         string? errorMessage;
 
-        var firstItem = command.Items.FirstOrDefault();
-        if (firstItem is null)
+        // Verificar simulacao de falha
+        var shouldFail = message.MessageAttributes.TryGetValue("SimulateFailure", out var failAttr)
+            && failAttr.StringValue.Equals("inventory", StringComparison.OrdinalIgnoreCase);
+
+        if (shouldFail)
         {
             success = false;
-            errorMessage = "Nenhum item no pedido";
+            errorMessage = "Falha simulada no inventario";
         }
         else
         {
-            var newReservationId = Guid.NewGuid().ToString();
-            var (ok, err) = _lockingMode switch
+            var firstItem = command.Items.FirstOrDefault();
+            if (firstItem is null)
             {
-                "optimistic" => await _inventoryRepository.TryReserveOptimisticAsync(
-                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
-                    _optimisticMaxRetries, ct),
-                "pessimistic" => await _inventoryRepository.TryReserveAsync(
-                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
-                    useLock: true, ct),
-                _ => await _inventoryRepository.TryReserveAsync(
-                    firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
-                    useLock: false, ct)
-            };
-            success = ok;
-            reservationId = ok ? newReservationId : null;
-            errorMessage = err;
+                success = false;
+                errorMessage = "Nenhum item no pedido";
+            }
+            else
+            {
+                var newReservationId = Guid.NewGuid().ToString();
+                var (ok, err) = _lockingMode switch
+                {
+                    "optimistic" => await _inventoryRepository.TryReserveOptimisticAsync(
+                        firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                        _optimisticMaxRetries, ct),
+                    "pessimistic" => await _inventoryRepository.TryReserveAsync(
+                        firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                        useLock: true, ct),
+                    _ => await _inventoryRepository.TryReserveAsync(
+                        firstItem.ProductId, firstItem.Quantity, newReservationId, command.SagaId,
+                        useLock: false, ct)
+                };
+                success = ok;
+                reservationId = ok ? newReservationId : null;
+                errorMessage = err;
+            }
         }
 
         var reply = new InventoryReply

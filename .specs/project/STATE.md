@@ -24,6 +24,8 @@
 
 - **2026-04-02:** Feature readme-walkthrough implementada. README.md criado na raiz com: visão geral do projeto, pré-requisitos, setup rápido com saída esperada, 4 demos via curl (happy path, falha pagamento, falha inventário, falha shipping), referência aos scripts automatizados, demo de concorrência com/sem lock, DLQ visibility, estrutura de diretórios comentada, tabela de portas e sumário dos 8 docs didáticos. Todos os milestones M1–M5 + README concluídos.
 
+- **2026-04-02:** Feature integration-tests implementada. Projeto xUnit `tests/IntegrationTests/` adicionado à solution. DockerComposeFixture sobe/derruba o compose via Process com polling de health checks. SagaClient e InventoryClient encapsulam os endpoints HTTP. 7 cenários cobertos: happy path (T1), 3 cenários de compensação (T2-T4), 2 testes de isolamento/idempotência (T5), concorrência com lock (T6), concorrência documentacional sem lock (T7). Build: 0 erros, 0 warnings. Decisao tecnica: await de tuples nao suportado em .NET 10 preview — usar Task.WhenAll com array. JsonElement nao e nullable — usar response.Content.ReadFromJsonAsync diretamente.
+
 ## Blockers
 
 _Nenhum no momento._
