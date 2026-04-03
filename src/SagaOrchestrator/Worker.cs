@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -115,9 +116,6 @@ public class Worker : BackgroundService
         using var activity = SagaActivitySource.StartProcessReply(
             mapping.ReplyTypeName, sagaId.ToString(), "Processing", parentContext.ActivityContext);
 
-        _logger.LogInformation("Reply recebido: SagaId={SagaId}, Success={Success}, Queue={Queue}",
-            sagaId, success, mapping.QueueName);
-
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SagaDbContext>();
 
@@ -129,6 +127,15 @@ public class Worker : BackgroundService
             return;
         }
 
+        var fromState = saga.CurrentState;
+        activity?.SetTag("saga.order_id", saga.OrderId.ToString());
+        activity?.SetTag("saga.from_state", fromState.ToString());
+        activity?.SetTag("saga.reply_success", success);
+
+        _logger.LogInformation(
+            "Reply recebido: SagaId={SagaId}, OrderId={OrderId}, State={State}, Success={Success}, Queue={Queue}",
+            sagaId, saga.OrderId, saga.CurrentState, success, mapping.QueueName);
+
         if (SagaStateMachine.IsCompensating(saga.CurrentState))
         {
             await HandleCompensationReplyAsync(saga, success, mapping, db, ct);
@@ -136,11 +143,14 @@ public class Worker : BackgroundService
         else if (!success)
         {
             await HandleFailureAsync(saga, baseReply, mapping, db, ct);
+            activity?.SetStatus(ActivityStatusCode.Error, "Saga step failed — compensation triggered");
         }
         else
         {
             await HandleSuccessAsync(saga, baseReply, mapping, db, ct);
         }
+
+        activity?.SetTag("saga.to_state", saga.CurrentState.ToString());
 
         await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
     }
@@ -150,26 +160,31 @@ public class Worker : BackgroundService
         // Armazenar dados de compensacao do step que completou
         StoreCompensationData(saga, replyJson);
 
+        var fromState = saga.CurrentState;
         var result = SagaStateMachine.TryAdvance(saga.CurrentState);
         if (result is null)
         {
-            _logger.LogWarning("Transicao invalida para SagaId={SagaId}, estado={State}", saga.Id, saga.CurrentState);
+            _logger.LogWarning("Transicao invalida para SagaId={SagaId}, OrderId={OrderId}, estado={State}",
+                saga.Id, saga.OrderId, saga.CurrentState);
             return;
         }
 
         var transition = saga.TransitionTo(result.NextState, mapping.ReplyTypeName);
         db.SagaStateTransitions.Add(transition);
 
-        _logger.LogInformation("Saga {SagaId} transicionou para {State}", saga.Id, saga.CurrentState);
-
         if (result.CommandQueue is not null)
         {
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: {FromState} → {ToState}, enviando proximo comando",
+                saga.Id, saga.OrderId, fromState, saga.CurrentState);
             // Enviar comando SQS antes do SaveChanges: idempotency no consumidor absorve reenvio
             await SendForwardCommandAsync(saga, result.CommandQueue, ct);
         }
         else
         {
-            _logger.LogInformation("Saga {SagaId} completada com sucesso", saga.Id);
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: {FromState} → {ToState} — CONCLUIDA COM SUCESSO",
+                saga.Id, saga.OrderId, fromState, saga.CurrentState);
         }
 
         // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
@@ -180,13 +195,17 @@ public class Worker : BackgroundService
     private async Task HandleFailureAsync(SagaInstance saga, JsonElement replyJson, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
     {
         var errorMessage = replyJson.TryGetProperty("ErrorMessage", out var em) ? em.GetString() : null;
-        _logger.LogWarning("Falha na saga {SagaId} no estado {State}: {Error}. Iniciando compensacao.",
-            saga.Id, saga.CurrentState, errorMessage);
+        var failedState = saga.CurrentState;
+
+        _logger.LogWarning(
+            "FALHA na saga {SagaId} OrderId={OrderId} no estado {State}: {Error}. Iniciando compensacao.",
+            saga.Id, saga.OrderId, saga.CurrentState, errorMessage);
 
         var result = SagaStateMachine.TryCompensate(saga.CurrentState);
         if (result is null)
         {
-            _logger.LogWarning("Sem compensacao definida para estado {State}", saga.CurrentState);
+            _logger.LogWarning("Sem compensacao definida para estado {State} — saga {SagaId} marcada como Failed",
+                saga.CurrentState, saga.Id);
             db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:Failure"));
             await db.SaveChangesAsync(ct);
             return;
@@ -195,16 +214,19 @@ public class Worker : BackgroundService
         var transition = saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Failure");
         db.SagaStateTransitions.Add(transition);
 
-        _logger.LogInformation("Saga {SagaId} iniciou compensacao -> {State}", saga.Id, saga.CurrentState);
-
         if (result.CommandQueue is not null)
         {
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: {FailedState} → {CompensationState}, enviando comando de compensacao",
+                saga.Id, saga.OrderId, failedState, saga.CurrentState);
             // Enviar comando SQS antes do SaveChanges: idempotency no consumidor absorve reenvio
             await SendCompensationCommandAsync(saga, result.CommandQueue, ct);
         }
         else
         {
-            _logger.LogInformation("Saga {SagaId} falhou sem necessidade de compensacao", saga.Id);
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: {FailedState} → Failed (sem compensacao necessaria)",
+                saga.Id, saga.OrderId, failedState);
         }
 
         // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
@@ -216,32 +238,38 @@ public class Worker : BackgroundService
     {
         if (!success)
         {
-            _logger.LogError("Falha na compensacao da saga {SagaId} no estado {State}. Intervencao manual necessaria.",
-                saga.Id, saga.CurrentState);
+            _logger.LogError(
+                "Falha na compensacao da saga {SagaId} OrderId={OrderId} no estado {State}. Intervencao manual necessaria.",
+                saga.Id, saga.OrderId, saga.CurrentState);
             db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:CompensationFailure"));
             await db.SaveChangesAsync(ct);
             return;
         }
 
+        var fromState = saga.CurrentState;
         var result = SagaStateMachine.TryAdvanceCompensation(saga.CurrentState);
         if (result is null)
         {
-            _logger.LogWarning("Transicao de compensacao invalida para estado {State}", saga.CurrentState);
+            _logger.LogWarning("Transicao de compensacao invalida para estado {State} na saga {SagaId}",
+                saga.CurrentState, saga.Id);
             return;
         }
 
         db.SagaStateTransitions.Add(saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Compensated"));
         await db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Saga {SagaId} compensacao avancou para {State}", saga.Id, saga.CurrentState);
-
         if (result.CommandQueue is not null)
         {
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: compensacao {FromState} → {ToState}, proximo passo",
+                saga.Id, saga.OrderId, fromState, saga.CurrentState);
             await SendCompensationCommandAsync(saga, result.CommandQueue, ct);
         }
         else
         {
-            _logger.LogInformation("Saga {SagaId} compensacao completa — estado final: Failed", saga.Id);
+            _logger.LogInformation(
+                "Saga {SagaId} OrderId={OrderId}: compensacao {FromState} → Failed — COMPENSACAO COMPLETA",
+                saga.Id, saga.OrderId, fromState);
         }
     }
 
@@ -363,14 +391,19 @@ public class Worker : BackgroundService
             };
         }
 
-        using (SagaActivitySource.StartSendCommand(command.GetType().Name, baseCommand.SagaId.ToString()))
-        {
-            SqsTracePropagation.Inject(request.MessageAttributes);
-            await _sqs.SendMessageAsync(request, ct);
-        }
+        using var sendActivity = SagaActivitySource.StartSendCommand(command.GetType().Name, baseCommand.SagaId.ToString());
+        // OrderId está disponível em todos os comandos concretos via propriedade direta
+        if (command is ProcessPayment pp) sendActivity?.SetTag("saga.order_id", pp.OrderId.ToString());
+        else if (command is ReserveInventory ri) sendActivity?.SetTag("saga.order_id", ri.OrderId.ToString());
+        else if (command is ScheduleShipping ss) sendActivity?.SetTag("saga.order_id", ss.OrderId.ToString());
+        else if (command is RefundPayment rp) { sendActivity?.SetTag("saga.order_id", rp.OrderId.ToString()); sendActivity?.SetTag("payment.amount", rp.Amount.ToString()); }
+        else if (command is ReleaseInventory rl) { sendActivity?.SetTag("saga.order_id", rl.OrderId.ToString()); sendActivity?.SetTag("inventory.reservation_id", rl.ReservationId); }
+        else if (command is CancelShipping cs) { sendActivity?.SetTag("saga.order_id", cs.OrderId.ToString()); sendActivity?.SetTag("shipping.tracking_number", cs.TrackingNumber); }
+        SqsTracePropagation.Inject(request.MessageAttributes);
+        await _sqs.SendMessageAsync(request, ct);
 
-        _logger.LogInformation("Comando {CommandType} enviado para {Queue}: SagaId={SagaId}",
-            command.GetType().Name, commandQueue, baseCommand.SagaId);
+        _logger.LogInformation("Comando {CommandType} enviado: SagaId={SagaId}, Queue={Queue}",
+            command.GetType().Name, baseCommand.SagaId, commandQueue);
     }
 
     private List<InventoryItem> DeserializeItems(string itemsJson)

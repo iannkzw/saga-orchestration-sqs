@@ -28,6 +28,8 @@
 
 - **2026-04-03:** Feature code-review concluída. Revisão estática de toda a implementação M1–M5 sem execução de testes. 16 findings documentados (0 CRITICAL, 2 HIGH, 6 MEDIUM, 4 LOW, 4 INFO). Relatório em `.specs/features/code-review/REPORT.md`. Principais riscos: [HIGH-01] grep case-sensitive quebra `--no-lock` no `concurrent-saga-demo.sh`; [HIGH-02] dual-write não-atômico no SagaOrchestrator (estado salvo, comando não enviado em falha parcial). Nenhuma correção implementada nesta sessão.
 
+- **2026-04-03:** Feature otel-lgtm implementada (M8). Stack LGTM adicionada ao Docker Compose (grafana/otel-lgtm:latest + otel/opentelemetry-collector-contrib:latest). OTel Collector configurado com tail sampling (drop /health GET status 200/UNSET, keep errors, sample-all default), memory_limiter e batch. AddSagaLogging() criado em Shared/Extensions/ServiceCollectionExtensions.cs com AddLogging+AddOpenTelemetry, IncludeFormattedMessage=true, IncludeScopes=true, AddOtlpExporter condicional (gRPC). AddSagaTracing() ajustado: console exporter somente quando OTLP nao configurado (mutuamente exclusivo). Service names padronizados para kebab-case em todos os 5 Program.cs (order-service, saga-orchestrator, payment-service, inventory-service, shipping-service). Grafana provisionado com datasources Tempo+Loki (correlacao TraceId bidirecional) e dashboard "Saga Orchestration - Overview" com variaveis $service e $saga_id, 3 paineis (Traces Recentes, Logs, Trace por Saga ID). OTEL_EXPORTER_OTLP_ENDPOINT e OTEL_SERVICE_NAME configurados nos 5 servicos .NET. Build: 0 erros, 0 warnings.
+
 ## Blockers
 
 _Nenhum no momento._

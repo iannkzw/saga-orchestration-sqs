@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -89,6 +90,8 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(ScheduleShipping), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("shipping.address", command.ShippingAddress);
 
         // Verificar idempotencia
         var cachedReply = await _idempotencyStore.TryGetAsync<ShippingReply>(command.IdempotencyKey);
@@ -133,6 +136,11 @@ public class Worker : BackgroundService
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
 
+        if (reply.Success)
+            processActivity?.SetTag("shipping.tracking_number", reply.TrackingNumber);
+        else
+            processActivity?.SetStatus(ActivityStatusCode.Error, reply.ErrorMessage);
+
         using (SagaActivitySource.StartSendReply(nameof(ShippingReply), command.SagaId.ToString()))
         {
             var replyRequest = new SendMessageRequest
@@ -146,8 +154,8 @@ public class Worker : BackgroundService
         }
 
         _logger.LogInformation(
-            "Reply enviado: ShippingReply SagaId={SagaId}, Success={Success}, TrackingNumber={TrackingNumber}",
-            reply.SagaId, reply.Success, reply.TrackingNumber);
+            "Reply enviado: ShippingReply SagaId={SagaId}, Success={Success}, TrackingNumber={TrackingNumber}, Error={Error}",
+            reply.SagaId, reply.Success, reply.TrackingNumber, reply.ErrorMessage);
     }
 
     private async Task HandleCancelShippingAsync(Message message, string repliesQueueUrl, CancellationToken ct)
@@ -156,6 +164,8 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(CancelShipping), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("shipping.tracking_number", command.TrackingNumber);
 
         // Verificar idempotencia
         var cachedReply = await _idempotencyStore.TryGetAsync<CancelShippingReply>(command.IdempotencyKey);

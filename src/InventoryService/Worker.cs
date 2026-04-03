@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -122,10 +123,18 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(ReserveInventory), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("inventory.locking_mode", _lockingMode);
+        var spanItem = command.Items.FirstOrDefault();
+        if (spanItem is not null)
+        {
+            processActivity?.SetTag("inventory.product_id", spanItem.ProductId);
+            processActivity?.SetTag("inventory.quantity", spanItem.Quantity);
+        }
 
         _logger.LogInformation(
-            "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}",
-            command.SagaId, command.OrderId, command.Items.Count);
+            "Comando recebido: ReserveInventory SagaId={SagaId}, OrderId={OrderId}, Items={ItemsCount}, LockMode={LockMode}",
+            command.SagaId, command.OrderId, command.Items.Count, _lockingMode);
 
         // Verificar idempotencia antes de qualquer processamento
         var cached = await _idempotencyStore.TryGetAsync<InventoryReply>(command.IdempotencyKey);
@@ -191,9 +200,14 @@ public class Worker : BackgroundService
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
         await SendReplyAsync(repliesQueueUrl, reply, reply.SagaId, ct);
 
+        if (reply.Success)
+            processActivity?.SetTag("inventory.reservation_id", reply.ReservationId);
+        else
+            processActivity?.SetStatus(ActivityStatusCode.Error, reply.ErrorMessage);
+
         _logger.LogInformation(
-            "Reply enviado: InventoryReply SagaId={SagaId}, Success={Success}, ReservationId={ReservationId}",
-            reply.SagaId, reply.Success, reply.ReservationId);
+            "Reply enviado: InventoryReply SagaId={SagaId}, Success={Success}, ReservationId={ReservationId}, Error={Error}",
+            reply.SagaId, reply.Success, reply.ReservationId, reply.ErrorMessage);
     }
 
     private async Task HandleReleaseInventoryAsync(Message message, string repliesQueueUrl, CancellationToken ct)
@@ -202,10 +216,12 @@ public class Worker : BackgroundService
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var processActivity = SagaActivitySource.StartProcessCommand(
             nameof(ReleaseInventory), command.SagaId.ToString(), parentContext.ActivityContext);
+        processActivity?.SetTag("saga.order_id", command.OrderId.ToString());
+        processActivity?.SetTag("inventory.reservation_id", command.ReservationId);
 
         _logger.LogInformation(
-            "Comando de compensacao: ReleaseInventory SagaId={SagaId}, ReservationId={ReservationId}",
-            command.SagaId, command.ReservationId);
+            "Comando de compensacao: ReleaseInventory SagaId={SagaId}, OrderId={OrderId}, ReservationId={ReservationId}",
+            command.SagaId, command.OrderId, command.ReservationId);
 
         // Verificar idempotencia
         var cached = await _idempotencyStore.TryGetAsync<ReleaseInventoryReply>(command.IdempotencyKey);
