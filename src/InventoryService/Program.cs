@@ -38,15 +38,18 @@ app.MapGet("/inventory/stock/{productId}", async (string productId, InventoryRep
     return Results.Ok(new { productId, quantity = stock });
 });
 
-// Reseta o estoque de um produto (util para demos e testes)
-app.MapPost("/inventory/reset", async (HttpContext context, InventoryRepository repo) =>
+// Endpoint destrutivo — apenas para ambiente de desenvolvimento/demo
+if (app.Environment.IsDevelopment())
 {
-    var body = await JsonSerializer.DeserializeAsync<JsonElement>(context.Request.Body);
-    var productId = body.TryGetProperty("productId", out var pid) ? pid.GetString() ?? "PROD-001" : "PROD-001";
-    var quantity = body.TryGetProperty("quantity", out var qty) ? qty.GetInt32() : 2;
+    app.MapPost("/inventory/reset", async (HttpContext context, InventoryRepository repo) =>
+    {
+        var body = await JsonSerializer.DeserializeAsync<JsonElement>(context.Request.Body);
+        var productId = body.TryGetProperty("productId", out var pid) ? pid.GetString() ?? "PROD-001" : "PROD-001";
+        var quantity = body.TryGetProperty("quantity", out var qty) ? qty.GetInt32() : 2;
 
-    await repo.ResetStockAsync(productId, quantity);
-    return Results.Ok(new { productId, quantity, message = "Estoque resetado com sucesso" });
-});
+        await repo.ResetStockAsync(productId, quantity);
+        return Results.Ok(new { productId, quantity, message = "Estoque resetado com sucesso" });
+    });
+}
 
 app.Run();

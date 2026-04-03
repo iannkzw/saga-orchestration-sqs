@@ -75,8 +75,10 @@ public class IdempotencyStore
         cmd.Parameters.AddWithValue("sagaId", sagaId);
         cmd.Parameters.AddWithValue("json", json);
 
-        await cmd.ExecuteNonQueryAsync();
-
-        _logger.LogInformation("Idempotency save: chave {Key} salva para saga {SagaId}", idempotencyKey, sagaId);
+        var rowsAffected = await cmd.ExecuteNonQueryAsync();
+        if (rowsAffected > 0)
+            _logger.LogInformation("Idempotency save: chave {Key} salva para saga {SagaId}", idempotencyKey, sagaId);
+        else
+            _logger.LogDebug("Idempotency save: chave {Key} ja existia (ON CONFLICT), ignorado", idempotencyKey);
     }
 }

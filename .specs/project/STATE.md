@@ -26,6 +26,8 @@
 
 - **2026-04-02:** Feature integration-tests implementada. Projeto xUnit `tests/IntegrationTests/` adicionado à solution. DockerComposeFixture sobe/derruba o compose via Process com polling de health checks. SagaClient e InventoryClient encapsulam os endpoints HTTP. 7 cenários cobertos: happy path (T1), 3 cenários de compensação (T2-T4), 2 testes de isolamento/idempotência (T5), concorrência com lock (T6), concorrência documentacional sem lock (T7). Build: 0 erros, 0 warnings. Decisao tecnica: await de tuples nao suportado em .NET 10 preview — usar Task.WhenAll com array. JsonElement nao e nullable — usar response.Content.ReadFromJsonAsync diretamente.
 
+- **2026-04-03:** Feature code-review concluída. Revisão estática de toda a implementação M1–M5 sem execução de testes. 16 findings documentados (0 CRITICAL, 2 HIGH, 6 MEDIUM, 4 LOW, 4 INFO). Relatório em `.specs/features/code-review/REPORT.md`. Principais riscos: [HIGH-01] grep case-sensitive quebra `--no-lock` no `concurrent-saga-demo.sh`; [HIGH-02] dual-write não-atômico no SagaOrchestrator (estado salvo, comando não enviado em falha parcial). Nenhuma correção implementada nesta sessão.
+
 ## Blockers
 
 _Nenhum no momento._

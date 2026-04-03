@@ -27,6 +27,15 @@ public class Worker : BackgroundService
         new(SqsConfig.ShippingReplies, "ShippingReplies"),
     ];
 
+    private static readonly string[] _commandQueueNames =
+    [
+        SqsConfig.PaymentCommands,
+        SqsConfig.InventoryCommands,
+        SqsConfig.ShippingCommands,
+    ];
+
+    private readonly Dictionary<string, string> _commandQueueUrls = new();
+
     public Worker(ILogger<Worker> logger, IServiceScopeFactory scopeFactory, IAmazonSQS sqs)
     {
         _logger = logger;
@@ -43,6 +52,12 @@ public class Worker : BackgroundService
         {
             var response = await _sqs.GetQueueUrlAsync(mapping.QueueName, stoppingToken);
             queueUrls[mapping.QueueName] = response.QueueUrl;
+        }
+
+        foreach (var queueName in _commandQueueNames)
+        {
+            var r = await _sqs.GetQueueUrlAsync(queueName, stoppingToken);
+            _commandQueueUrls[queueName] = r.QueueUrl;
         }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -82,8 +97,19 @@ public class Worker : BackgroundService
     {
         // Deserializar campos base para obter SagaId e Success
         var baseReply = JsonSerializer.Deserialize<JsonElement>(message.Body);
-        var sagaId = baseReply.GetProperty("SagaId").GetGuid();
-        var success = baseReply.GetProperty("Success").GetBoolean();
+
+        // TODO [Dívida Técnica]: Validar se mapping.ReplyTypeName é esperado para saga.CurrentState.
+        // Em re-entrega cruzada por timeout de visibilidade, um reply de estado anterior poderia
+        // avançar a saga incorretamente. Aceitável para PoC; mitigar em produção.
+        if (!baseReply.TryGetProperty("SagaId", out var sagaIdProp) ||
+            !baseReply.TryGetProperty("Success", out var successProp))
+        {
+            _logger.LogError("Mensagem malformada em {Queue}: {Body}", mapping.QueueName, message.Body);
+            await _sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
+            return;
+        }
+        var sagaId = sagaIdProp.GetGuid();
+        var success = successProp.GetBoolean();
 
         var parentContext = SqsTracePropagation.Extract(message.MessageAttributes);
         using var activity = SagaActivitySource.StartProcessReply(
@@ -133,18 +159,22 @@ public class Worker : BackgroundService
 
         var transition = saga.TransitionTo(result.NextState, mapping.ReplyTypeName);
         db.SagaStateTransitions.Add(transition);
-        await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Saga {SagaId} transicionou para {State}", saga.Id, saga.CurrentState);
 
         if (result.CommandQueue is not null)
         {
+            // Enviar comando SQS antes do SaveChanges: idempotency no consumidor absorve reenvio
             await SendForwardCommandAsync(saga, result.CommandQueue, ct);
         }
         else
         {
             _logger.LogInformation("Saga {SagaId} completada com sucesso", saga.Id);
         }
+
+        // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
+        //      para garantir entrega exactly-once sem dual-write.
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task HandleFailureAsync(SagaInstance saga, JsonElement replyJson, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
@@ -164,18 +194,22 @@ public class Worker : BackgroundService
 
         var transition = saga.TransitionTo(result.NextState, $"{mapping.ReplyTypeName}:Failure");
         db.SagaStateTransitions.Add(transition);
-        await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Saga {SagaId} iniciou compensacao -> {State}", saga.Id, saga.CurrentState);
 
         if (result.CommandQueue is not null)
         {
+            // Enviar comando SQS antes do SaveChanges: idempotency no consumidor absorve reenvio
             await SendCompensationCommandAsync(saga, result.CommandQueue, ct);
         }
         else
         {
             _logger.LogInformation("Saga {SagaId} falhou sem necessidade de compensacao", saga.Id);
         }
+
+        // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
+        //      para garantir entrega exactly-once sem dual-write.
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task HandleCompensationReplyAsync(SagaInstance saga, bool success, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
@@ -303,12 +337,12 @@ public class Worker : BackgroundService
 
     private async Task SendCommandToQueueAsync(object command, string commandQueue, string? simulateFailure, CancellationToken ct)
     {
-        var queueUrlResponse = await _sqs.GetQueueUrlAsync(commandQueue, ct);
+        var queueUrl = _commandQueueUrls[commandQueue];
         var baseCommand = (BaseCommand)command;
 
         var request = new SendMessageRequest
         {
-            QueueUrl = queueUrlResponse.QueueUrl,
+            QueueUrl = queueUrl,
             MessageBody = JsonSerializer.Serialize(command, command.GetType()),
             MessageAttributes = new Dictionary<string, MessageAttributeValue>
             {
@@ -339,7 +373,7 @@ public class Worker : BackgroundService
             command.GetType().Name, commandQueue, baseCommand.SagaId);
     }
 
-    private static List<InventoryItem> DeserializeItems(string itemsJson)
+    private List<InventoryItem> DeserializeItems(string itemsJson)
     {
         try
         {
@@ -350,8 +384,9 @@ public class Worker : BackgroundService
                 Quantity = i.Quantity
             }).ToList();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Falha ao desserializar ItemsJson da saga. Json={ItemsJson}", itemsJson);
             return [];
         }
     }

@@ -134,7 +134,7 @@ public class Worker : BackgroundService
             _logger.LogInformation(
                 "Idempotency hit para ReserveInventory IdempotencyKey={Key}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
-            await SendReplyAsync(repliesQueueUrl, cached, ct);
+            await SendReplyAsync(repliesQueueUrl, cached, command.SagaId, ct);
             return;
         }
 
@@ -189,7 +189,7 @@ public class Worker : BackgroundService
         };
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
-        await SendReplyAsync(repliesQueueUrl, reply, ct);
+        await SendReplyAsync(repliesQueueUrl, reply, reply.SagaId, ct);
 
         _logger.LogInformation(
             "Reply enviado: InventoryReply SagaId={SagaId}, Success={Success}, ReservationId={ReservationId}",
@@ -214,7 +214,7 @@ public class Worker : BackgroundService
             _logger.LogInformation(
                 "Idempotency hit para ReleaseInventory IdempotencyKey={Key}, SagaId={SagaId}",
                 command.IdempotencyKey, command.SagaId);
-            await SendReplyAsync(repliesQueueUrl, cached, ct);
+            await SendReplyAsync(repliesQueueUrl, cached, command.SagaId, ct);
             return;
         }
 
@@ -240,16 +240,16 @@ public class Worker : BackgroundService
         };
 
         await _idempotencyStore.SaveAsync(command.IdempotencyKey, command.SagaId, reply);
-        await SendReplyAsync(repliesQueueUrl, reply, ct);
+        await SendReplyAsync(repliesQueueUrl, reply, reply.SagaId, ct);
 
         _logger.LogInformation(
             "Reply de compensacao: ReleaseInventoryReply SagaId={SagaId}, Success={Success}",
             reply.SagaId, reply.Success);
     }
 
-    private async Task SendReplyAsync<T>(string repliesQueueUrl, T reply, CancellationToken ct)
+    private async Task SendReplyAsync<T>(string repliesQueueUrl, T reply, Guid sagaId, CancellationToken ct)
     {
-        using (SagaActivitySource.StartSendReply(typeof(T).Name, string.Empty))
+        using (SagaActivitySource.StartSendReply(typeof(T).Name, sagaId.ToString()))
         {
             var request = new SendMessageRequest
             {

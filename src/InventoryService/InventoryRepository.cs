@@ -47,7 +47,7 @@ public class InventoryRepository
 
         _logger.LogInformation(
             "Tabelas inventory e inventory_reservations garantidas. " +
-            "Produto PROD-001 inserido com estoque inicial = 2 (se ainda nao existia).");
+            "Produto PROD-001 garantido (inserido ou ja existia — ON CONFLICT DO NOTHING).");
     }
 
     /// <summary>
@@ -288,7 +288,7 @@ public class InventoryRepository
             await using var updateCmd = conn.CreateCommand();
             updateCmd.Transaction = tx;
             updateCmd.CommandText =
-                "UPDATE inventory SET quantity = quantity + @qty WHERE product_id = @productId";
+                "UPDATE inventory SET quantity = quantity + @qty, version = version + 1 WHERE product_id = @productId";
             updateCmd.Parameters.AddWithValue("qty", quantity);
             updateCmd.Parameters.AddWithValue("productId", productId);
             await updateCmd.ExecuteNonQueryAsync(ct);
@@ -333,8 +333,10 @@ public class InventoryRepository
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
+        await using var tx = await conn.BeginTransactionAsync();
 
         await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO inventory (product_id, name, quantity, version)
             VALUES (@productId, @productId, @quantity, 0)
@@ -344,6 +346,7 @@ public class InventoryRepository
         cmd.Parameters.AddWithValue("quantity", quantity);
         cmd.Parameters.AddWithValue("productId", productId);
         await cmd.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
 
         _logger.LogInformation(
             "[Inventory] Estoque resetado: produto={ProductId}, quantidade={Quantity}",
