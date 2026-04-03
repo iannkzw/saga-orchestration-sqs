@@ -242,104 +242,11 @@ curl -s -X POST http://localhost:5002/dlq/redrive \
 
 ## Observabilidade — LGTM Stack
 
-O projeto integra a stack **LGTM** (Grafana + Tempo + Loki) para visualização de traces distribuídos e logs estruturados. Um OTel Collector centraliza a coleta, aplica tail sampling e encaminha para os backends.
+O projeto integra a stack **LGTM** (Grafana + Tempo + Loki) via um OTel Collector centralizado. Os 5 serviços .NET exportam traces e logs via OTLP gRPC para o Collector, que aplica tail sampling (descarta `GET /health` com status OK, mantém erros) e encaminha ao backend `grafana/otel-lgtm` (all-in-one).
 
-### Arquitetura
+Acesse **http://localhost:3000** após `docker compose up -d`. Use **Explore → Tempo** para buscar traces por `service.name` ou `saga.id`, e **Explore → Loki** com `{service_name="<serviço>"}` para logs. Os datasources têm link bidirecional: um `TraceID` no log navega direto ao trace, e um span no Tempo mostra os logs correlacionados.
 
-```
-OrderService  SagaOrchestrator  PaymentService  InventoryService  ShippingService
-     │               │                │               │                │
-     └───────────────┴────────────────┴───────────────┴────────────────┘
-                                      │ OTLP gRPC (:4317)
-                              ┌───────▼────────┐
-                              │ OTel Collector  │
-                              │  tail sampling  │  → drop GET /health (200)
-                              │  memory_limiter │  → keep errors
-                              │  batch          │  → sample all default
-                              └───────┬────────┘
-                                      │ OTLP HTTP
-                              ┌───────▼────────┐
-                              │  grafana/otel-  │
-                              │  lgtm (all-in-  │
-                              │  one container) │
-                              │  Tempo  │  Loki │
-                              │ traces  │  logs │
-                              └────────────────┘
-                                Grafana (:3000)
-```
-
-### Acesso ao Grafana
-
-Após `docker compose up -d`, acesse **http://localhost:3000** (sem login necessário em modo anônimo padrão da imagem `grafana/otel-lgtm`).
-
-#### Explorar traces (Tempo)
-
-1. Menu lateral → **Explore**
-2. Selecione o datasource **Tempo**
-3. Use a busca por `service.name` ou `saga.id` para filtrar traces
-4. Clique em qualquer span para ver os logs correlacionados
-
-#### Explorar logs (Loki)
-
-1. Menu lateral → **Explore**
-2. Selecione o datasource **Loki**
-3. Query: `{service_name="order-service"}` (ou qualquer dos 5 serviços)
-4. Clique no campo `TraceID` de um log para navegar direto ao trace no Tempo
-
-#### Dashboard provisionado
-
-O dashboard **Saga Orchestration — Overview** é provisionado automaticamente em `Dashboards → Saga Orchestration → Saga Orchestration - Overview`:
-
-| Painel | Descrição |
-|---|---|
-| Traces Recentes | Lista de traces por `service.name` com duração e status |
-| Logs por Serviço | Log browser filtrado por `service_name` |
-| Trace por Saga ID | Busca manual por `saga.id` |
-
-Use a variável `$service` no topo do dashboard para filtrar por serviço.
-
-### OTel Collector
-
-O Collector (`infra/otel/otelcol.yaml`) recebe telemetria de todos os serviços .NET via OTLP gRPC e aplica três camadas de processamento antes de encaminhar ao LGTM:
-
-| Processor | Configuração |
-|---|---|
-| `memory_limiter` | Limite 512 MiB, spike 256 MiB |
-| `tail_sampling` | `decision_wait=5s`, `num_traces=5000` |
-| `batch` | `send_batch_size=512`, `timeout=5s` |
-
-**Políticas de tail sampling** (`infra/otel/processors/sampling/policies.yaml`):
-
-| Política | Comportamento |
-|---|---|
-| `drop-health-checks` | Descarta traces de `GET /health` com status OK — evita ruído |
-| `keep-errors` | Sempre mantém traces com status `ERROR` |
-| `sample-default` | Amostra todos os demais traces |
-
-### Exportação de Logs via OpenTelemetry
-
-Os logs do `ILogger<T>` de todos os serviços são exportados via OTLP para o Loki usando o provider `OpenTelemetry.Exporter.OpenTelemetryProtocol`. O método `AddSagaLogging()` em `Shared/Extensions/ServiceCollectionExtensions.cs` configura automaticamente:
-
-- `IncludeFormattedMessage = true`
-- `IncludeScopes = true`
-- Correlação automática de `TraceId` / `SpanId` nos logs
-
-Quando `OTEL_EXPORTER_OTLP_ENDPOINT` não está definido (dev local sem stack), o console exporter é usado como fallback para traces.
-
-### Variáveis de ambiente por serviço
-
-Cada serviço .NET tem as seguintes variáveis configuradas no `docker-compose.yml`:
-
-| Variável | Valor |
-|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otelcol:4317` |
-| `OTEL_SERVICE_NAME` | kebab-case do serviço (ex: `order-service`) |
-
-### Datasources provisionados
-
-Os datasources **Tempo** e **Loki** são provisionados automaticamente via `infra/grafana/provisioning/datasources/datasources.yaml` com link bidirecional:
-- Tempo → Loki: clique em um trace mostra os logs correlacionados por `TraceId`
-- Loki → Tempo: o campo `TraceID` nos logs navega diretamente para o trace
+Os logs do `ILogger<T>` são exportados via OTLP com correlação automática de `TraceId`/`SpanId` (método `AddSagaLogging()` em `Shared/Extensions/ServiceCollectionExtensions.cs`). Cada serviço tem `OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317` e `OTEL_SERVICE_NAME` em kebab-case configurados no `docker-compose.yml`. Sem o endpoint definido, o console exporter é usado como fallback.
 
 ---
 
