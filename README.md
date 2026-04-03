@@ -288,7 +288,7 @@ Após `docker compose up -d`, acesse **http://localhost:3000** (sem login necess
 
 #### Dashboard provisionado
 
-O dashboard **Saga Orchestration — Overview** é provisionado automaticamente em `Dashboards → Saga Orchestration`:
+O dashboard **Saga Orchestration — Overview** é provisionado automaticamente em `Dashboards → Saga Orchestration → Saga Orchestration - Overview`:
 
 | Painel | Descrição |
 |---|---|
