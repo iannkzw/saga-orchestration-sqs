@@ -233,6 +233,71 @@ curl -s -X POST http://localhost:5002/dlq/redrive \
 
 ---
 
+## Testes de Integração
+
+O projeto inclui uma suíte de 8 testes de integração end-to-end que sobe o ambiente completo via Docker Compose e valida todos os cenários principais.
+
+### Pré-requisitos
+
+Além dos pré-requisitos gerais, é necessário o SDK .NET 10:
+
+```bash
+dotnet --version   # deve retornar 10.x
+```
+
+### Executar
+
+```bash
+dotnet test tests/IntegrationTests/
+```
+
+O runner cuida de tudo automaticamente:
+1. Builda as imagens Docker (usa cache quando possível)
+2. Sobe LocalStack, PostgreSQL e os 5 serviços
+3. Aguarda as filas SQS serem criadas e os health checks passarem
+4. Executa os 8 testes em sequência
+5. Derruba e limpa o ambiente (`down -v`)
+
+Tempo esperado na primeira execução (build das imagens): **~3–5 minutos**.  
+Execuções subsequentes (imagens em cache): **~1–2 minutos**.
+
+### Testes incluídos
+
+| ID | Classe | Cenário |
+|---|---|---|
+| T1 | `HappyPathTests` | Pedido válido — saga atinge `Completed` com todas as transições |
+| T2 | `CompensationTests` | Falha no pagamento — saga termina `Failed` sem compensação |
+| T3 | `CompensationTests` | Falha no inventário — `Failed` com `PaymentRefunding` |
+| T4 | `CompensationTests` | Falha no shipping — `Failed` com cascata completa |
+| T5a | `IdempotencyTests` | Dois pedidos simultâneos — ambos completam sem corrupção de estado |
+| T5b | `IdempotencyTests` | Pedido falho não corrompe pedido bem-sucedido concorrente |
+| T6 | `ConcurrencyTests` | 5 pedidos simultâneos com estoque=2 e lock pessimista — exatamente 2 completam |
+| T7 | `ConcurrencyTests` | Comportamento sem lock (documentacional — sempre passa) |
+
+### Saída esperada
+
+```
+Aprovado IntegrationTests.Tests.CompensationTests.PaymentFailure_SagaFails_NoCompensation
+Aprovado IntegrationTests.Tests.CompensationTests.ShippingFailure_SagaFails_InventoryAndPaymentCompensated
+Aprovado IntegrationTests.Tests.CompensationTests.InventoryFailure_SagaFails_PaymentRefunded
+Aprovado IntegrationTests.Tests.ConcurrencyTests.WithoutLock_DocumentsBehavior_AlwaysPasses
+Aprovado IntegrationTests.Tests.ConcurrencyTests.WithPessimisticLock_ExactlyTwoComplete_NoOverbooking
+Aprovado IntegrationTests.Tests.HappyPathTests.PostOrder_ValidProduct_SagaCompletes
+Aprovado IntegrationTests.Tests.IdempotencyTests.TwoConcurrentOrders_BothComplete_NoStateCorruption
+Aprovado IntegrationTests.Tests.IdempotencyTests.FailingOrderDoesNotCorruptConcurrentSuccessfulOrder
+
+Total de testes: 8 | Aprovados: 8
+```
+
+### Detalhes da infraestrutura de testes
+
+Os testes usam um compose override (`tests/IntegrationTests/docker-compose.test.yml`) que:
+- Fixa as portas 5001–5005 para os serviços
+- Força `INVENTORY_LOCKING_MODE=pessimistic` (necessário para T6)
+- Adiciona `restart: unless-stopped` para tolerar o race entre o startup dos serviços e a criação assíncrona das filas SQS pelo `init-sqs.sh`
+
+---
+
 ## Estrutura do Projeto
 
 ```
@@ -252,6 +317,12 @@ saga-orchestration-dotnet-sqs/
 │   ├── lib/common.sh             # Funções compartilhadas (check_health, poll_saga, etc.)
 │   ├── happy-path-demo.sh        # 4 cenários sequenciais com verificação automática
 │   └── concurrent-saga-demo.sh   # Demo de concorrência com/sem lock
+│
+├── tests/
+│   └── IntegrationTests/         # Suíte de 8 testes E2E (xUnit + Docker Compose)
+│       ├── Tests/                # HappyPath, Compensation, Idempotency, Concurrency
+│       ├── Infrastructure/       # DockerComposeFixture, SagaClient, InventoryClient
+│       └── docker-compose.test.yml  # Override de portas e locking mode para testes
 │
 ├── infra/                        # Configuração de infraestrutura local
 │   ├── localstack/               # Init script de criação das filas SQS

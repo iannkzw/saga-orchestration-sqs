@@ -25,11 +25,16 @@ builder.Services.AddHttpClient("SagaOrchestrator", client =>
 
 var app = builder.Build();
 
-// EnsureCreated no startup (PoC — sem migrations formais)
+// Cria tabela orders de forma idempotente — EnsureCreated pula a criação se o banco
+// já contém tabelas de outros serviços (inventory, etc.), por isso usamos
+// IRelationalDatabaseCreator.CreateTablesAsync que cria apenas as tabelas sem verificar o banco
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-    db.Database.EnsureCreated();
+    var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)db).Instance;
+    var creator = (Microsoft.EntityFrameworkCore.Storage.IRelationalDatabaseCreator)
+        serviceProvider.GetRequiredService<Microsoft.EntityFrameworkCore.Storage.IDatabaseCreator>();
+    try { await creator.CreateTablesAsync(); } catch { /* tabelas já existem */ }
 }
 
 app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
