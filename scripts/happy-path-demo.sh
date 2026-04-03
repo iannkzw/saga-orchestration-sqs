@@ -174,6 +174,8 @@ fi
 # =============================================================================
 header "=== Cenario 3: Falha no Inventario ==="
 
+STOCK_ANTES_C3=$(get_stock "$PRODUCT_ID")
+
 RESPONSE=$(curl -sf -X POST "$ORDER_URL/orders" \
   -H "Content-Type: application/json" \
   -H "X-Simulate-Failure: inventory" \
@@ -201,6 +203,13 @@ else
   assert_state              "$SAGA_ID" "Failed" "$ELAPSED"
   assert_transition_present "$SAGA_ID" "PaymentRefunding"
   assert_transition_absent  "$SAGA_ID" "ShippingScheduling"
+
+  STOCK_APOS=$(get_stock "$PRODUCT_ID")
+  if [[ "$STOCK_APOS" -eq "$STOCK_ANTES_C3" ]]; then
+    cenario_ok "Estoque nao alterado: $STOCK_APOS (inventario falhou antes de reservar)"
+  else
+    cenario_fail "Estoque alterado inesperadamente: era $STOCK_ANTES_C3, agora $STOCK_APOS"
+  fi
 fi
 
 # =============================================================================

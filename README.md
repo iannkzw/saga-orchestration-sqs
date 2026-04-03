@@ -32,7 +32,11 @@
 git clone https://github.com/iannkzw/saga-orchestration-dotnet-sqs.git
 cd saga-orchestration-dotnet-sqs
 
-# 2. Suba todos os serviços
+# 2. Na primeira execução, compile as imagens antes de subir
+#    (evita timeout de health check durante restauração de pacotes NuGet)
+docker compose build
+
+# 3. Suba todos os serviços
 docker compose up -d
 
 # 3. Aguarde os containers ficarem healthy (~30s)

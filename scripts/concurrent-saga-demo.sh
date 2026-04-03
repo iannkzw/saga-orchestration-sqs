@@ -18,6 +18,11 @@
 
 set -euo pipefail
 
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "ERRO: requer Bash >= 4. No macOS: brew install bash"
+  exit 1
+fi
+
 source "$(dirname "$0")/lib/common.sh"
 
 NUM_PEDIDOS=5
@@ -63,7 +68,7 @@ check_health "SagaOrchestrator" "$ORCHESTRATOR_URL"
 header "=== Modo: $MODO_LOCK ==="
 
 if [[ "$NO_LOCK" == true ]]; then
-  if ! docker logs saga-inventory-service 2>&1 | grep -q "locking=SEM LOCK"; then
+  if ! docker logs saga-inventory-service 2>&1 | grep -qi "locking=sem lock"; then
     error "O InventoryService NAO esta no modo SEM LOCK."
     echo ""
     echo -e "  Para o modo sem lock, reinicie o inventory-service com:"
@@ -93,6 +98,7 @@ log "Expectativa COM LOCK: $ESTOQUE_INICIAL Completed + $((NUM_PEDIDOS - ESTOQUE
 echo ""
 
 TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 declare -a PIDS
 
 for i in $(seq 1 "$NUM_PEDIDOS"); do
