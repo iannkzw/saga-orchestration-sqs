@@ -14,6 +14,8 @@ public static class SqsConfig
     public const string ShippingCommands = "shipping-commands";
     public const string ShippingReplies = "shipping-replies";
 
+    public const string OrderStatusUpdates = "order-status-updates";
+
     // Nomes de todas as DLQs (sufixo "-dlq" para cada fila)
     public static readonly string[] AllDlqNames =
     [
@@ -24,7 +26,8 @@ public static class SqsConfig
         $"{InventoryCommands}-dlq",
         $"{InventoryReplies}-dlq",
         $"{ShippingCommands}-dlq",
-        $"{ShippingReplies}-dlq"
+        $"{ShippingReplies}-dlq",
+        $"{OrderStatusUpdates}-dlq"
     ];
 
     // Mapeamento DLQ -> fila original

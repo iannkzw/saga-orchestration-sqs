@@ -93,6 +93,56 @@ public sealed class SagaClient : IDisposable
             $"Último estado: {lastState}");
     }
 
+    /// <summary>
+    /// GET /orders/{orderId} → retorna OrderResponse.
+    /// </summary>
+    public async Task<OrderResponse> GetOrderAsync(Guid orderId)
+    {
+        var response = await _orderClient.GetAsync($"/orders/{orderId}");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+
+        return new OrderResponse(
+            OrderId: body.GetProperty("orderId").GetGuid(),
+            SagaId: body.TryGetProperty("sagaId", out var sid) && sid.ValueKind != JsonValueKind.Null
+                ? sid.GetGuid() : null,
+            Status: body.GetProperty("status").GetString() ?? string.Empty,
+            TotalAmount: body.GetProperty("totalAmount").GetDecimal()
+        );
+    }
+
+    /// <summary>
+    /// Faz polling até order.status atingir o valor esperado.
+    /// </summary>
+    public async Task<OrderResponse> WaitForOrderStatusAsync(
+        Guid orderId,
+        string expectedStatus,
+        TimeSpan? timeout = null,
+        TimeSpan? interval = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(30);
+        var effectiveInterval = interval ?? TimeSpan.FromMilliseconds(500);
+        using var cts = new CancellationTokenSource(effectiveTimeout);
+
+        OrderResponse? last = null;
+        while (!cts.IsCancellationRequested)
+        {
+            try
+            {
+                last = await GetOrderAsync(orderId);
+                if (last.Status == expectedStatus)
+                    return last;
+            }
+            catch when (!cts.IsCancellationRequested) { }
+
+            await Task.Delay(effectiveInterval, cts.Token).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException(
+            $"Order {orderId} não atingiu status '{expectedStatus}' em {effectiveTimeout.TotalSeconds}s. " +
+            $"Último status: {last?.Status ?? "desconhecido"}");
+    }
+
     private static SagaResponse ParseSagaResponse(JsonElement body)
     {
         var transitions = body.GetProperty("transitions")

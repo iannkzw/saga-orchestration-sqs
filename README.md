@@ -10,6 +10,40 @@
 - **Observabilidade LGTM** — traces no Grafana/Tempo, logs no Grafana/Loki, correlacionados por TraceId
 - **Concorrência com pessimistic locking** — SELECT FOR UPDATE vs race condition real
 
+## Arquitetura
+
+```mermaid
+flowchart LR
+  subgraph OrderService
+    OS_API[POST /orders]
+    OS_Worker[Worker order-status-updates]
+  end
+
+  subgraph SagaOrchestrator
+    ORC[Worker reply queues]
+  end
+
+  subgraph Workers
+    PAY[PaymentService]
+    INV[InventoryService]
+    SHP[ShippingService]
+  end
+
+  DB[(PostgreSQL)]
+
+  OS_API -->|HTTP POST /sagas| ORC
+  ORC -->|payment-commands| PAY
+  PAY -->|payment-replies| ORC
+  ORC -->|inventory-commands| INV
+  INV -->|inventory-replies| ORC
+  ORC -->|shipping-commands| SHP
+  SHP -->|shipping-replies| ORC
+  ORC -->|order-status-updates| OS_Worker
+  ORC --- DB
+  OS_API --- DB
+  OS_Worker --- DB
+```
+
 ---
 
 ## Pré-requisitos
@@ -96,7 +130,7 @@ Verifique o estado final da saga (aguarde ~2s para o orquestrador processar):
 ```bash
 SAGA_ID="<sagaId da resposta acima>"
 
-curl -s http://localhost:5002/sagas/$SAGA_ID | jq '{state: .currentState, transitions: [.transitions[].toState]}'
+curl -s http://localhost:5002/sagas/$SAGA_ID | jq '{state: .state, transitions: [.transitions[].to]}'
 ```
 
 Resposta esperada:
@@ -111,6 +145,20 @@ Resposta esperada:
     "Completed"
   ]
 }
+```
+
+Verifique o status do pedido (atualizado de forma assíncrona pelo Worker do OrderService):
+
+```bash
+ORDER_ID="<orderId da resposta do POST>"
+
+curl -s http://localhost:5001/orders/$ORDER_ID | jq '{status: .status}'
+```
+
+Resposta esperada:
+
+```json
+{"status": "Completed"}
 ```
 
 ---
@@ -130,6 +178,8 @@ curl -s -X POST http://localhost:5001/orders \
 
 Cascata: `PaymentProcessing → Failed` (nenhuma compensação necessária — nada foi confirmado)
 
+Após a saga terminar, `GET /orders/{orderId}` retorna `"status": "Failed"`.
+
 #### Falha no Inventário
 
 ```bash
@@ -141,6 +191,8 @@ curl -s -X POST http://localhost:5001/orders \
 
 Cascata: `InventoryReserving → PaymentRefunding → Failed` (estorno do pagamento)
 
+Após a saga terminar, `GET /orders/{orderId}` retorna `"status": "Failed"`.
+
 #### Falha no Shipping
 
 ```bash
@@ -151,6 +203,8 @@ curl -s -X POST http://localhost:5001/orders \
 ```
 
 Cascata: `ShippingCancelling → InventoryReleasing → PaymentRefunding → Failed` (rollback completo)
+
+Após a saga terminar, `GET /orders/{orderId}` retorna `"status": "Failed"`.
 
 ---
 

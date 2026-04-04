@@ -24,7 +24,7 @@ public sealed class CompensationTests
     [Fact]
     public async Task PaymentFailure_SagaFails_NoCompensation()
     {
-        var (_, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "payment");
+        var (orderId, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "payment");
         var saga = await _saga.WaitForTerminalStateAsync(sagaId);
 
         Assert.Equal("Failed", saga.State);
@@ -32,6 +32,10 @@ public sealed class CompensationTests
         var toStates = saga.Transitions.Select(t => t.To).ToList();
         Assert.DoesNotContain("InventoryReleasing", toStates);
         Assert.DoesNotContain("PaymentRefunding", toStates);
+
+        // Assert — order.status reflete estado terminal via Worker
+        var order = await _saga.WaitForOrderStatusAsync(orderId, "Failed");
+        Assert.Equal("Failed", order.Status);
     }
 
     /// <summary>
@@ -40,7 +44,7 @@ public sealed class CompensationTests
     [Fact]
     public async Task InventoryFailure_SagaFails_PaymentRefunded()
     {
-        var (_, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "inventory");
+        var (orderId, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "inventory");
         var saga = await _saga.WaitForTerminalStateAsync(sagaId);
 
         Assert.Equal("Failed", saga.State);
@@ -48,6 +52,10 @@ public sealed class CompensationTests
         var toStates = saga.Transitions.Select(t => t.To).ToList();
         Assert.Contains("PaymentRefunding", toStates);
         Assert.DoesNotContain("InventoryReleasing", toStates);
+
+        // Assert — order.status reflete estado terminal via Worker
+        var order = await _saga.WaitForOrderStatusAsync(orderId, "Failed");
+        Assert.Equal("Failed", order.Status);
     }
 
     /// <summary>
@@ -56,7 +64,7 @@ public sealed class CompensationTests
     [Fact]
     public async Task ShippingFailure_SagaFails_InventoryAndPaymentCompensated()
     {
-        var (_, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "shipping");
+        var (orderId, sagaId) = await _saga.PostOrderAsync(DefaultOrder, simulateFailure: "shipping");
         var saga = await _saga.WaitForTerminalStateAsync(sagaId);
 
         Assert.Equal("Failed", saga.State);
@@ -64,5 +72,9 @@ public sealed class CompensationTests
         var toStates = saga.Transitions.Select(t => t.To).ToList();
         Assert.Contains("InventoryReleasing", toStates);
         Assert.Contains("PaymentRefunding", toStates);
+
+        // Assert — order.status reflete estado terminal via Worker
+        var order = await _saga.WaitForOrderStatusAsync(orderId, "Failed");
+        Assert.Equal("Failed", order.Status);
     }
 }

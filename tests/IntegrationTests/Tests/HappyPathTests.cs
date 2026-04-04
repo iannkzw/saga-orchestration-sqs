@@ -45,5 +45,9 @@ public sealed class HappyPathTests
         // Assert — IDs corretos
         Assert.NotEqual(Guid.Empty, orderId);
         Assert.NotEqual(Guid.Empty, sagaId);
+
+        // Assert — order.status reflete estado terminal via Worker
+        var order = await _saga.WaitForOrderStatusAsync(orderId, "Completed");
+        Assert.Equal("Completed", order.Status);
     }
 }

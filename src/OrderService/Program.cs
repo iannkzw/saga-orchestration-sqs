@@ -24,6 +24,8 @@ builder.Services.AddHttpClient("SagaOrchestrator", client =>
     client.BaseAddress = new Uri(sagaOrchestratorUrl);
 });
 
+builder.Services.AddHostedService<OrderService.Worker>();
+
 var app = builder.Build();
 
 // Cria tabela orders de forma idempotente — EnsureCreated pula a criação se o banco

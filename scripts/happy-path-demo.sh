@@ -60,6 +60,22 @@ assert_transition_absent() {
   fi
 }
 
+# assert_order_status ORDER_ID EXPECTED_STATUS
+assert_order_status() {
+  local order_id="$1" expected="$2" actual
+  local deadline=$((SECONDS + 15))
+  while [[ $SECONDS -lt $deadline ]]; do
+    actual=$(curl -sf "$ORDER_URL/orders/$order_id" 2>/dev/null | jq -r '.status // "Unknown"')
+    [[ "$actual" == "$expected" ]] && break
+    sleep 1
+  done
+  if [[ "$actual" == "$expected" ]]; then
+    cenario_ok "order.status = $expected (pedido atualizado pelo Worker)"
+  else
+    cenario_fail "order.status esperado $expected, obtido $actual"
+  fi
+}
+
 # --- Verificar dependencias ---
 for cmd in curl jq; do
   if ! command -v "$cmd" &>/dev/null; then
@@ -108,6 +124,7 @@ else
   ELAPSED=$((SECONDS - START))
 
   assert_state "$SAGA_ID" "Completed" "$ELAPSED"
+  assert_order_status "$ORDER_ID" "Completed"
 
   TRANSITIONS=$(get_transitions "$SAGA_ID")
   EXPECTED_SEQ="PaymentProcessing InventoryReserving ShippingScheduling Completed"
@@ -158,6 +175,7 @@ else
   ELAPSED=$((SECONDS - START))
 
   assert_state               "$SAGA_ID" "Failed" "$ELAPSED"
+  assert_order_status        "$ORDER_ID" "Failed"
   assert_transition_present  "$SAGA_ID" "PaymentProcessing"
   assert_transition_absent   "$SAGA_ID" "InventoryReserving"
 
@@ -201,6 +219,7 @@ else
   ELAPSED=$((SECONDS - START))
 
   assert_state              "$SAGA_ID" "Failed" "$ELAPSED"
+  assert_order_status       "$ORDER_ID" "Failed"
   assert_transition_present "$SAGA_ID" "PaymentRefunding"
   assert_transition_absent  "$SAGA_ID" "ShippingScheduling"
 
@@ -242,6 +261,7 @@ else
   ELAPSED=$((SECONDS - START))
 
   assert_state              "$SAGA_ID" "Failed" "$ELAPSED"
+  assert_order_status       "$ORDER_ID" "Failed"
   assert_transition_present "$SAGA_ID" "InventoryReleasing"
   assert_transition_present "$SAGA_ID" "PaymentRefunding"
 fi

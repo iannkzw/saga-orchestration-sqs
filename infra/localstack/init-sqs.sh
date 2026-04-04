@@ -19,6 +19,7 @@ QUEUES=(
   "shipping-commands"
   "shipping-replies"
   "saga-commands"
+  "order-status-updates"
 )
 
 # =============================================================================

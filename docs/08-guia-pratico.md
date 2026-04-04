@@ -102,6 +102,19 @@ Anote os IDs retornados.
 curl http://localhost:5001/orders/{orderId}
 ```
 
+Aguarde ~2s para o Worker do OrderService processar a notificação da fila `order-status-updates`. Resposta esperada:
+
+```json
+{
+  "orderId": "aaaaaaaa-...",
+  "sagaId":  "bbbbbbbb-...",
+  "status":  "Completed",
+  "totalAmount": 99.90
+}
+```
+
+> O campo `status` é atualizado de forma assíncrona pelo Worker do OrderService ao consumir a fila `order-status-updates`. Aguarde ~2s após a saga terminar.
+
 ### Passo 3: Ver o estado da saga diretamente
 
 ```bash
@@ -145,6 +158,14 @@ Transicoes esperadas:
 Pending → PaymentProcessing → Failed
 ```
 
+Apos a saga terminar, verifique o status do pedido:
+
+```bash
+curl http://localhost:5001/orders/{orderId} | jq '{status: .status}'
+```
+
+Resposta esperada: `{"status": "Failed"}`
+
 ### Falha no Inventory (compensa Payment)
 
 ```bash
@@ -158,6 +179,14 @@ Transicoes esperadas:
 ```
 Pending → PaymentProcessing → InventoryReserving → PaymentRefunding → Failed
 ```
+
+Apos a saga terminar, verifique o status do pedido:
+
+```bash
+curl http://localhost:5001/orders/{orderId} | jq '{status: .status}'
+```
+
+Resposta esperada: `{"status": "Failed"}`
 
 ### Falha no Shipping (compensa Inventory + Payment)
 
@@ -173,6 +202,16 @@ Transicoes esperadas:
 Pending → PaymentProcessing → InventoryReserving → ShippingScheduling
        → InventoryReleasing → PaymentRefunding → Failed
 ```
+
+Apos a saga terminar, verifique o status do pedido:
+
+```bash
+curl http://localhost:5001/orders/{orderId} | jq '{status: .status}'
+```
+
+Resposta esperada: `{"status": "Failed"}`
+
+> O campo `status` no pedido e atualizado de forma assincrona pelo Worker do OrderService ao consumir a fila `order-status-updates`. Aguarde ~2s apos a saga terminar.
 
 ---
 
