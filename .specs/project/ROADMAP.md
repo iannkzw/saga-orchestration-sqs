@@ -220,6 +220,23 @@
 
 ---
 
+## M9 - Sincronização de Status do Pedido
+
+**Goal:** Corrigir o bug em que `Order.Status` fica permanentemente preso em `Processing`. O `SagaOrchestrator` passa a publicar notificações de estado terminal na fila `order-status-updates`, e um novo Worker no `OrderService` consome essa fila e atualiza o banco.
+**Status:** TODO
+
+### Features
+
+**order-status-sync** - TODO
+
+- Nova fila SQS `order-status-updates` (+ DLQ) no LocalStack
+- Contrato compartilhado `SagaTerminatedNotification` em `Shared/Contracts/Notifications/`
+- `SagaOrchestrator.Worker` publica notificação ao atingir `Completed` ou `Failed`
+- Novo `OrderService.Worker` consome `order-status-updates` e atualiza `Order.Status` no PostgreSQL
+- `GET /orders/{id}` passa a retornar `status = Completed/Failed` após fluxo completo
+
+---
+
 ## Future Considerations
 
 - Metricas OTel (counters, histograms, gauges) + dashboard Grafana

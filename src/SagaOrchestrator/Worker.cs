@@ -8,6 +8,7 @@ using SagaOrchestrator.Models;
 using SagaOrchestrator.StateMachine;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
+using Shared.Contracts.Notifications;
 using Shared.Contracts.Replies;
 using Shared.Telemetry;
 
@@ -36,6 +37,7 @@ public class Worker : BackgroundService
     ];
 
     private readonly Dictionary<string, string> _commandQueueUrls = new();
+    private string _orderStatusQueueUrl = string.Empty;
 
     public Worker(ILogger<Worker> logger, IServiceScopeFactory scopeFactory, IAmazonSQS sqs)
     {
@@ -60,6 +62,9 @@ public class Worker : BackgroundService
             var r = await _sqs.GetQueueUrlAsync(queueName, stoppingToken);
             _commandQueueUrls[queueName] = r.QueueUrl;
         }
+
+        var statusQueueResponse = await _sqs.GetQueueUrlAsync(SqsConfig.OrderStatusUpdates, stoppingToken);
+        _orderStatusQueueUrl = statusQueueResponse.QueueUrl;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -190,6 +195,9 @@ public class Worker : BackgroundService
         // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
         //      para garantir entrega exactly-once sem dual-write.
         await db.SaveChangesAsync(ct);
+
+        if (SagaStateMachine.IsTerminal(saga.CurrentState))
+            await PublishSagaTerminatedAsync(saga, ct);
     }
 
     private async Task HandleFailureAsync(SagaInstance saga, JsonElement replyJson, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
@@ -208,6 +216,7 @@ public class Worker : BackgroundService
                 saga.CurrentState, saga.Id);
             db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:Failure"));
             await db.SaveChangesAsync(ct);
+            await PublishSagaTerminatedAsync(saga, ct);
             return;
         }
 
@@ -232,6 +241,9 @@ public class Worker : BackgroundService
         // TODO [Transactional Outbox]: salvar comando na mesma tx do DB e publicar via job separado
         //      para garantir entrega exactly-once sem dual-write.
         await db.SaveChangesAsync(ct);
+
+        if (SagaStateMachine.IsTerminal(saga.CurrentState))
+            await PublishSagaTerminatedAsync(saga, ct);
     }
 
     private async Task HandleCompensationReplyAsync(SagaInstance saga, bool success, QueueMapping mapping, SagaDbContext db, CancellationToken ct)
@@ -243,6 +255,7 @@ public class Worker : BackgroundService
                 saga.Id, saga.OrderId, saga.CurrentState);
             db.SagaStateTransitions.Add(saga.TransitionTo(SagaState.Failed, $"{mapping.ReplyTypeName}:CompensationFailure"));
             await db.SaveChangesAsync(ct);
+            await PublishSagaTerminatedAsync(saga, ct);
             return;
         }
 
@@ -270,7 +283,22 @@ public class Worker : BackgroundService
             _logger.LogInformation(
                 "Saga {SagaId} OrderId={OrderId}: compensacao {FromState} → Failed — COMPENSACAO COMPLETA",
                 saga.Id, saga.OrderId, fromState);
+            await PublishSagaTerminatedAsync(saga, ct);
         }
+    }
+
+    private async Task PublishSagaTerminatedAsync(SagaInstance saga, CancellationToken ct)
+    {
+        var notification = new SagaTerminatedNotification(saga.Id, saga.OrderId, saga.CurrentState.ToString());
+        var request = new SendMessageRequest
+        {
+            QueueUrl = _orderStatusQueueUrl,
+            MessageBody = JsonSerializer.Serialize(notification)
+        };
+        await _sqs.SendMessageAsync(request, ct);
+        _logger.LogInformation(
+            "SagaTerminated publicado: SagaId={SagaId}, OrderId={OrderId}, State={State}",
+            saga.Id, saga.OrderId, saga.CurrentState);
     }
 
     private void StoreCompensationData(SagaInstance saga, JsonElement replyJson)
