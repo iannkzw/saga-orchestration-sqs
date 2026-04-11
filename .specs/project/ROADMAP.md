@@ -15,7 +15,7 @@
 
 ### Features
 
-**mt-merge-order-orchestrator** - PLANNED
+**mt-merge-order-orchestrator** - DONE
 
 - Fundir SagaOrchestrator no OrderService (mesmo bounded context: order fulfillment)
 - Justificativa: com MassTransit, a state machine e declarativa (~1 classe) — nao justifica um servico dedicado

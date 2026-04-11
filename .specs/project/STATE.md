@@ -4,6 +4,7 @@
 
 ## Decisions
 
+- **2026-04-11:** Feature mt-merge-order-orchestrator concluida. OrderService absorveu a responsabilidade de orquestracao: HTTP hop para SagaOrchestrator removido, Worker.cs (polling order-status-updates) removido, endpoints movidos para Api/OrderEndpoints.cs, OrderDbContext unificado com DbSet<OrderSagaInstance>, MassTransit adicionado (in-memory por ora — SQS transport vem em mt-messaging-infra). Evento OrderPlaced criado em Shared/Contracts/Events/. Build compila com 0 erros.
 - **2026-04-04:** Milestone M10 (Migração MassTransit) criada no ROADMAP com 18 features. Decisao arquitetural: fundir OrderService + SagaOrchestrator em um unico OrderService. Justificativa: com MassTransit a state machine e declarativa (~1 classe), nao justifica servico dedicado; elimina HTTP hop anti-pattern (POST /sagas); resolve bug Order.Status preso em Processing (M9 tornado obsoleto); Order e Saga sao do mesmo bounded context (order fulfillment). Resultado: 4 microsservicos independentes (OrderService, PaymentService, InventoryService, ShippingService) em vez de 5. Escopo total: ~900+ linhas eliminadas, 9+ filas SQS removidas, dual-write resolvido, docs reescritos (8 existentes + 2 novos), 7 docs codebase.
 
 ## Blockers
