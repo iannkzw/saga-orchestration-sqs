@@ -42,7 +42,7 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
             When(OrderPlaced)
                 .Then(ctx =>
                 {
-                    ctx.Saga.OrderId = ctx.Saga.CorrelationId;
+                    ctx.Saga.OrderId = ctx.Message.OrderId;
                     ctx.Saga.TotalAmount = ctx.Message.TotalAmount;
                     ctx.Saga.CreatedAt = DateTime.UtcNow;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;

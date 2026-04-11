@@ -55,6 +55,7 @@ public static class OrderEndpoints
         var correlationId = Guid.NewGuid();
         await publishEndpoint.Publish(new OrderPlaced(
             correlationId,
+            order.Id,
             customerId,
             totalAmount,
             orderItems,
