@@ -8,6 +8,7 @@ using SagaOrchestrator.Models;
 using SagaOrchestrator.StateMachine;
 using Shared.Configuration;
 using Shared.Contracts.Commands;
+using Shared.Contracts.Events;
 using Shared.Contracts.Notifications;
 using Shared.Contracts.Replies;
 using Shared.Telemetry;
@@ -344,7 +345,7 @@ public class Worker : BackgroundService
             {
                 SagaId = saga.Id,
                 OrderId = saga.OrderId,
-                ShippingAddress = "Endereco padrao (PoC)",
+                ShippingAddress = new ShippingAddress("Endereco padrao (PoC)", string.Empty, string.Empty, string.Empty),
                 IdempotencyKey = $"{saga.Id}-shipping",
                 Timestamp = DateTime.UtcNow
             },
@@ -434,16 +435,11 @@ public class Worker : BackgroundService
             command.GetType().Name, baseCommand.SagaId, commandQueue);
     }
 
-    private List<InventoryItem> DeserializeItems(string itemsJson)
+    private IReadOnlyList<OrderItem> DeserializeItems(string itemsJson)
     {
         try
         {
-            var orderItems = JsonSerializer.Deserialize<List<OrderItem>>(itemsJson) ?? [];
-            return orderItems.Select(i => new InventoryItem
-            {
-                ProductId = i.ProductId,
-                Quantity = i.Quantity
-            }).ToList();
+            return JsonSerializer.Deserialize<List<OrderItem>>(itemsJson) ?? [];
         }
         catch (Exception ex)
         {

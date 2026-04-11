@@ -40,7 +40,7 @@
 - SetCompletedWhenFinalized() para cleanup automatico
 - Remover SagaStateMachine.cs imperativo, enums SagaState, dicionarios estaticos de transicao
 
-**mt-event-contracts** - PLANNED
+**mt-event-contracts** - DONE
 
 - Criar contratos de evento em Shared/Contracts/Events/ (PaymentCompleted, PaymentFailed, InventoryReserved, InventoryReservationFailed, ShippingScheduled, ShippingFailed, etc.)
 - Criar contrato OrderCreated para iniciar a saga (substitui HTTP POST /sagas)

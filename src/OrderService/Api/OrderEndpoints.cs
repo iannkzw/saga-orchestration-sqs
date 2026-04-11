@@ -41,23 +41,25 @@ public static class OrderEndpoints
         db.Orders.Add(order);
         await db.SaveChangesAsync();
 
+        var customerId = requestBody.TryGetProperty("customerId", out var cid)
+            ? cid.GetString() ?? string.Empty
+            : string.Empty;
+
         var items = JsonSerializer.Deserialize<List<JsonElement>>(itemsJson) ?? [];
-        var orderItems = items.Select(i => new OrderItem
-        {
-            ProductId = i.GetProperty("productId").GetString() ?? string.Empty,
-            Quantity = i.GetProperty("quantity").GetInt32(),
-            UnitPrice = i.TryGetProperty("unitPrice", out var up) ? up.GetDecimal() : 0m
-        }).ToList();
+        var orderItems = items.Select(i => new OrderItem(
+            i.GetProperty("productId").GetString() ?? string.Empty,
+            i.GetProperty("quantity").GetInt32(),
+            i.TryGetProperty("unitPrice", out var up) ? up.GetDecimal() : 0m
+        )).ToList();
 
         var correlationId = Guid.NewGuid();
-        await publishEndpoint.Publish(new OrderPlaced
-        {
-            CorrelationId = correlationId,
-            OrderId = order.Id,
-            TotalAmount = totalAmount,
-            Items = orderItems,
-            Timestamp = DateTime.UtcNow
-        });
+        await publishEndpoint.Publish(new OrderPlaced(
+            correlationId,
+            customerId,
+            totalAmount,
+            orderItems,
+            DateTime.UtcNow
+        ));
 
         order.SagaId = correlationId;
         order.Status = OrderStatus.Processing;

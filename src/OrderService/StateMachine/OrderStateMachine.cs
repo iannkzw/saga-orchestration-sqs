@@ -37,7 +37,7 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
             When(OrderPlaced)
                 .Then(ctx =>
                 {
-                    ctx.Saga.OrderId = ctx.Message.OrderId;
+                    ctx.Saga.OrderId = ctx.Saga.CorrelationId;
                     ctx.Saga.TotalAmount = ctx.Message.TotalAmount;
                     ctx.Saga.CreatedAt = DateTime.UtcNow;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
@@ -45,10 +45,10 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .TransitionTo(PaymentProcessing)
                 .PublishAsync(ctx => ctx.Init<ProcessPayment>(new ProcessPayment
                 {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Message.OrderId,
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    OrderId = ctx.Saga.OrderId,
                     Amount = ctx.Message.TotalAmount,
-                    IdempotencyKey = $"payment-{ctx.Message.OrderId}"
+                    CustomerId = ctx.Message.CustomerId
                 }))
         );
 
@@ -62,10 +62,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .TransitionTo(InventoryReserving)
                 .PublishAsync(ctx => ctx.Init<ReserveInventory>(new ReserveInventory
                 {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId,
-                    Items = [],
-                    IdempotencyKey = $"inventory-{ctx.Saga.OrderId}"
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    OrderId = ctx.Saga.OrderId
                 })),
 
             When(PaymentReply, ctx => !ctx.Message.Success)
@@ -88,10 +86,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .TransitionTo(ShippingScheduling)
                 .PublishAsync(ctx => ctx.Init<ScheduleShipping>(new ScheduleShipping
                 {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId,
-                    ShippingAddress = string.Empty,
-                    IdempotencyKey = $"shipping-{ctx.Saga.OrderId}"
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    OrderId = ctx.Saga.OrderId
                 })),
 
             When(InventoryReply, ctx => !ctx.Message.Success)

@@ -1,7 +1,11 @@
 namespace Shared.Contracts.Commands;
 
+using Shared.Contracts.Events;
+
 public record ScheduleShipping : BaseCommand
 {
+    public Guid CorrelationId { get; init; }
     public Guid OrderId { get; init; }
-    public string ShippingAddress { get; init; } = string.Empty;
+    public IReadOnlyList<OrderItem> Items { get; init; } = [];
+    public ShippingAddress? ShippingAddress { get; init; }
 }
