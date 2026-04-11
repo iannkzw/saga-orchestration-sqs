@@ -58,7 +58,7 @@
 - Remover Worker.cs com polling loop manual dos 3 servicos (Payment, Inventory, Shipping)
 - Remover despacho manual por MessageAttribute CommandType
 
-**mt-messaging-infra** - PLANNED
+**mt-messaging-infra** - DONE
 
 - Configurar MassTransit UsingAmazonSqs com ConfigureEndpoints(context) no Program.cs de cada servico (4 Program.cs independentes)
 - Cada microsservico registra apenas seus proprios consumers no AddMassTransit (isolamento de deploy)

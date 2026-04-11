@@ -1,7 +1,7 @@
 # Feature: mt-messaging-infra
 
 **Milestone:** M10 - Migração MassTransit
-**Status:** PLANNED
+**Status:** DONE
 
 ## Objetivo
 

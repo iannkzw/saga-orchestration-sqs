@@ -9,7 +9,7 @@
 
 ---
 
-## T1 — Adicionar pacotes MassTransit.AmazonSqs aos projetos
+## T1 — Adicionar pacotes MassTransit.AmazonSqs aos projetos — DONE
 
 **Arquivos:** `*.csproj` de cada serviço
 
@@ -32,7 +32,7 @@ Os 4 serviços precisam do pacote:
 
 ---
 
-## T2 — Criar `ConfigureSqsHost` extension method no Shared
+## T2 — Criar `ConfigureSqsHost` extension method no Shared — DONE
 
 **Arquivo:** `src/Shared/Extensions/MassTransitExtensions.cs`
 
@@ -51,7 +51,7 @@ Variáveis de ambiente lidas:
 
 ---
 
-## T3 — Validar criação automática de filas no LocalStack
+## T3 — Validar criação automática de filas no LocalStack — DEFERRED (mt-infra-docker)
 
 **O que fazer:**
 
