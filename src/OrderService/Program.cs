@@ -2,6 +2,8 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Api;
 using OrderService.Data;
+using OrderService.Models;
+using OrderService.StateMachine;
 using Shared.Extensions;
 using Shared.HealthChecks;
 
@@ -17,7 +19,23 @@ var connectionString = builder.Configuration.GetConnectionString("SagaDb")
 builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-builder.Services.AddMassTransit(x => x.UsingInMemory());
+builder.Services.AddMassTransit(cfg =>
+{
+    cfg.AddSagaStateMachine<OrderStateMachine, OrderSagaInstance, OrderStateMachineDefinition>()
+       .EntityFrameworkRepository(r =>
+       {
+           r.ConcurrencyMode = ConcurrencyMode.Optimistic;
+           r.AddDbContext<DbContext, OrderDbContext>((_, options) =>
+               options.UseNpgsql(connectionString));
+       });
+
+    cfg.UsingAmazonSqs((context, sqsCfg) =>
+    {
+        sqsCfg.ConfigureSqsHost(builder.Configuration);
+        sqsCfg.UseMessageRetry(r => r.Intervals(500, 1000, 2000, 5000));
+        sqsCfg.ConfigureEndpoints(context);
+    });
+});
 
 var app = builder.Build();
 

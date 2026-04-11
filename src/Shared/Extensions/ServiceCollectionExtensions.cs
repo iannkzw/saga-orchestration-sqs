@@ -34,6 +34,7 @@ public static class ServiceCollectionExtensions
             {
                 builder
                     .AddSource(SagaActivitySource.Name)
+                    .AddSource("MassTransit")
                     .AddSource("Npgsql")
                     .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
                     .AddAspNetCoreInstrumentation()
