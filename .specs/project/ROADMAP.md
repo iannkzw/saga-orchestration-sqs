@@ -29,7 +29,7 @@
 - Remover fila SQS order-status-updates e sua DLQ
 - De 5 para 4 containers .NET no docker-compose
 
-**mt-state-machine** - PLANNED
+**mt-state-machine** - DONE
 
 - Criar `OrderSagaState : SagaStateMachineInstance` com propriedades tipadas (PaymentTransactionId, InventoryReservationId, ShippingTrackingNumber, RowVersion)
 - Criar `OrderStateMachine : MassTransitStateMachine<OrderSagaState>` com blocos Initially/During/When declarativos

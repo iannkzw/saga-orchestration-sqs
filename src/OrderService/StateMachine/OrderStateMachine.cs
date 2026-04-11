@@ -4,7 +4,6 @@ using OrderService.Data;
 using OrderService.Models;
 using Shared.Contracts.Commands;
 using Shared.Contracts.Events;
-using Shared.Contracts.Replies;
 
 namespace OrderService.StateMachine;
 
@@ -16,22 +15,28 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
     public State Compensating { get; private set; } = null!;
 
     public Event<OrderPlaced> OrderPlaced { get; private set; } = null!;
-    public Event<PaymentReply> PaymentReply { get; private set; } = null!;
-    public Event<InventoryReply> InventoryReply { get; private set; } = null!;
-    public Event<ShippingReply> ShippingReply { get; private set; } = null!;
-    public Event<ReleaseInventoryReply> ReleaseInventoryReply { get; private set; } = null!;
-    public Event<RefundPaymentReply> RefundPaymentReply { get; private set; } = null!;
+    public Event<PaymentCompleted> PaymentCompleted { get; private set; } = null!;
+    public Event<PaymentFailed> PaymentFailed { get; private set; } = null!;
+    public Event<InventoryReserved> InventoryReserved { get; private set; } = null!;
+    public Event<InventoryFailed> InventoryFailed { get; private set; } = null!;
+    public Event<ShippingScheduled> ShippingScheduled { get; private set; } = null!;
+    public Event<ShippingFailed> ShippingFailed { get; private set; } = null!;
+    public Event<InventoryCancelled> InventoryCancelled { get; private set; } = null!;
+    public Event<PaymentCancelled> PaymentCancelled { get; private set; } = null!;
 
     public OrderStateMachine()
     {
         InstanceState(x => x.CurrentState);
 
         Event(() => OrderPlaced, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
-        Event(() => PaymentReply, e => e.CorrelateById(ctx => ctx.Message.SagaId));
-        Event(() => InventoryReply, e => e.CorrelateById(ctx => ctx.Message.SagaId));
-        Event(() => ShippingReply, e => e.CorrelateById(ctx => ctx.Message.SagaId));
-        Event(() => ReleaseInventoryReply, e => e.CorrelateById(ctx => ctx.Message.SagaId));
-        Event(() => RefundPaymentReply, e => e.CorrelateById(ctx => ctx.Message.SagaId));
+        Event(() => PaymentCompleted, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => PaymentFailed, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => InventoryReserved, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => InventoryFailed, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => ShippingScheduled, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => ShippingFailed, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => InventoryCancelled, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
+        Event(() => PaymentCancelled, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
 
         Initially(
             When(OrderPlaced)
@@ -53,10 +58,10 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
         );
 
         During(PaymentProcessing,
-            When(PaymentReply, ctx => ctx.Message.Success)
+            When(PaymentCompleted)
                 .Then(ctx =>
                 {
-                    ctx.Saga.PaymentId = ctx.Message.TransactionId;
+                    ctx.Saga.PaymentId = ctx.Message.PaymentId;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
                 .TransitionTo(InventoryReserving)
@@ -66,10 +71,10 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     OrderId = ctx.Saga.OrderId
                 })),
 
-            When(PaymentReply, ctx => !ctx.Message.Success)
+            When(PaymentFailed)
                 .ThenAsync(async ctx =>
                 {
-                    ctx.Saga.FailureReason = ctx.Message.ErrorMessage ?? "Payment failed";
+                    ctx.Saga.FailureReason = ctx.Message.Reason;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                     await UpdateOrderStatus(ctx.GetServiceOrCreateInstance<OrderDbContext>(), ctx.Saga);
                 })
@@ -77,7 +82,7 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
         );
 
         During(InventoryReserving,
-            When(InventoryReply, ctx => ctx.Message.Success)
+            When(InventoryReserved)
                 .Then(ctx =>
                 {
                     ctx.Saga.ReservationId = ctx.Message.ReservationId;
@@ -90,26 +95,22 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     OrderId = ctx.Saga.OrderId
                 })),
 
-            When(InventoryReply, ctx => !ctx.Message.Success)
+            When(InventoryFailed)
                 .Then(ctx =>
                 {
-                    ctx.Saga.FailureReason = ctx.Message.ErrorMessage ?? "Inventory reservation failed";
+                    ctx.Saga.FailureReason = ctx.Message.Reason;
                     ctx.Saga.CompensationStep = "CancelPayment";
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
                 .TransitionTo(Compensating)
-                .PublishAsync(ctx => ctx.Init<RefundPayment>(new RefundPayment
-                {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId,
-                    Amount = ctx.Saga.TotalAmount,
-                    TransactionId = ctx.Saga.PaymentId ?? string.Empty,
-                    IdempotencyKey = $"refund-payment-{ctx.Saga.OrderId}"
-                }))
+                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment(
+                    ctx.Saga.CorrelationId,
+                    ctx.Saga.PaymentId ?? string.Empty
+                )))
         );
 
         During(ShippingScheduling,
-            When(ShippingReply, ctx => ctx.Message.Success)
+            When(ShippingScheduled)
                 .ThenAsync(async ctx =>
                 {
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
@@ -117,40 +118,33 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 })
                 .TransitionTo(Final),
 
-            When(ShippingReply, ctx => !ctx.Message.Success)
+            When(ShippingFailed)
                 .Then(ctx =>
                 {
-                    ctx.Saga.FailureReason = ctx.Message.ErrorMessage ?? "Shipping scheduling failed";
+                    ctx.Saga.FailureReason = ctx.Message.Reason;
                     ctx.Saga.CompensationStep = "CancelInventory";
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
                 .TransitionTo(Compensating)
-                .PublishAsync(ctx => ctx.Init<ReleaseInventory>(new ReleaseInventory
-                {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId,
-                    ReservationId = ctx.Saga.ReservationId ?? string.Empty,
-                    IdempotencyKey = $"release-inventory-{ctx.Saga.OrderId}"
-                }))
+                .PublishAsync(ctx => ctx.Init<CancelInventory>(new CancelInventory(
+                    ctx.Saga.CorrelationId,
+                    ctx.Saga.ReservationId ?? string.Empty
+                )))
         );
 
         During(Compensating,
-            When(ReleaseInventoryReply)
+            When(InventoryCancelled)
                 .Then(ctx =>
                 {
                     ctx.Saga.CompensationStep = "CancelPayment";
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
-                .PublishAsync(ctx => ctx.Init<RefundPayment>(new RefundPayment
-                {
-                    SagaId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId,
-                    Amount = ctx.Saga.TotalAmount,
-                    TransactionId = ctx.Saga.PaymentId ?? string.Empty,
-                    IdempotencyKey = $"refund-payment-{ctx.Saga.OrderId}"
-                })),
+                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment(
+                    ctx.Saga.CorrelationId,
+                    ctx.Saga.PaymentId ?? string.Empty
+                ))),
 
-            When(RefundPaymentReply)
+            When(PaymentCancelled)
                 .ThenAsync(async ctx =>
                 {
                     ctx.Saga.CompensationStep = null;
