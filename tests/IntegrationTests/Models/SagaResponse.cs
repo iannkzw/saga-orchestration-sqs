@@ -5,8 +5,7 @@ public record SagaResponse(
     Guid OrderId,
     string State,
     DateTime CreatedAt,
-    DateTime UpdatedAt,
-    List<SagaTransition> Transitions
+    DateTime UpdatedAt
 );
 
 public record SagaTransition(

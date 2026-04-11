@@ -9,14 +9,10 @@ public sealed class SagaClient : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _orderClient;
-    private readonly HttpClient _sagaClient;
 
-    public SagaClient(
-        string orderServiceUrl = "http://localhost:5001",
-        string sagaOrchestratorUrl = "http://localhost:5002")
+    public SagaClient(string orderServiceUrl = "http://localhost:5001")
     {
         _orderClient = new HttpClient { BaseAddress = new Uri(orderServiceUrl) };
-        _sagaClient = new HttpClient { BaseAddress = new Uri(sagaOrchestratorUrl) };
     }
 
     /// <summary>
@@ -49,11 +45,17 @@ public sealed class SagaClient : IDisposable
     /// </summary>
     public async Task<SagaResponse> GetSagaAsync(Guid sagaId)
     {
-        var response = await _sagaClient.GetAsync($"/sagas/{sagaId}");
+        var response = await _orderClient.GetAsync($"/sagas/{sagaId}");
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
 
-        return ParseSagaResponse(body);
+        return new SagaResponse(
+            SagaId: body.GetProperty("sagaId").GetGuid(),
+            OrderId: body.GetProperty("orderId").GetGuid(),
+            State: body.GetProperty("state").GetString() ?? string.Empty,
+            CreatedAt: body.GetProperty("createdAt").GetDateTime(),
+            UpdatedAt: body.GetProperty("updatedAt").GetDateTime()
+        );
     }
 
     /// <summary>
@@ -76,7 +78,7 @@ public sealed class SagaClient : IDisposable
             try
             {
                 last = await GetSagaAsync(sagaId);
-                if (last.State is "Completed" or "Failed")
+                if (last.State is "Final" or "Completed" or "Failed")
                     return last;
             }
             catch when (!cts.IsCancellationRequested)
@@ -143,31 +145,8 @@ public sealed class SagaClient : IDisposable
             $"Último status: {last?.Status ?? "desconhecido"}");
     }
 
-    private static SagaResponse ParseSagaResponse(JsonElement body)
-    {
-        var transitions = body.GetProperty("transitions")
-            .EnumerateArray()
-            .Select(t => new SagaTransition(
-                From: t.GetProperty("from").GetString() ?? string.Empty,
-                To: t.GetProperty("to").GetString() ?? string.Empty,
-                TriggeredBy: t.GetProperty("triggeredBy").GetString() ?? string.Empty,
-                Timestamp: t.GetProperty("timestamp").GetDateTime()
-            ))
-            .ToList();
-
-        return new SagaResponse(
-            SagaId: body.GetProperty("sagaId").GetGuid(),
-            OrderId: body.GetProperty("orderId").GetGuid(),
-            State: body.GetProperty("state").GetString() ?? string.Empty,
-            CreatedAt: body.GetProperty("createdAt").GetDateTime(),
-            UpdatedAt: body.GetProperty("updatedAt").GetDateTime(),
-            Transitions: transitions
-        );
-    }
-
     public void Dispose()
     {
         _orderClient.Dispose();
-        _sagaClient.Dispose();
     }
 }

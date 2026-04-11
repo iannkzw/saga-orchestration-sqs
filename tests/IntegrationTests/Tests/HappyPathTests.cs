@@ -29,24 +29,13 @@ public sealed class HappyPathTests
         var saga = await _saga.WaitForTerminalStateAsync(sagaId);
 
         // Assert — estado terminal
-        Assert.Equal("Completed", saga.State);
-
-        // Assert — transições na ordem correta
-        var transitions = saga.Transitions.Select(t => t.To).ToList();
-        Assert.Contains("PaymentProcessing", transitions);
-        Assert.Contains("InventoryReserving", transitions);
-        Assert.Contains("ShippingScheduling", transitions);
-        Assert.Contains("Completed", transitions);
-
-        // Assert — transições em ordem crescente de tempo
-        var timestamps = saga.Transitions.Select(t => t.Timestamp).ToList();
-        Assert.Equal(timestamps.OrderBy(t => t).ToList(), timestamps);
+        Assert.Equal("Final", saga.State);
 
         // Assert — IDs corretos
         Assert.NotEqual(Guid.Empty, orderId);
         Assert.NotEqual(Guid.Empty, sagaId);
 
-        // Assert — order.status reflete estado terminal via Worker
+        // Assert — order.status reflete estado terminal
         var order = await _saga.WaitForOrderStatusAsync(orderId, "Completed");
         Assert.Equal("Completed", order.Status);
     }

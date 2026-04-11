@@ -7,7 +7,8 @@
 
 ORDER_URL="${ORDER_URL:-http://localhost:5001}"
 INVENTORY_URL="${INVENTORY_URL:-http://localhost:5004}"
-ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:5002}"
+# ORCHESTRATOR_URL aponta para o OrderService (saga-orchestrator foi removido)
+ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:5001}"
 PRODUCT_ID="${PRODUCT_ID:-PROD-001}"
 
 # --- Cores ---
@@ -39,7 +40,9 @@ check_health() {
 }
 
 # poll_saga SAGA_ID TIMEOUT
-# Poll a cada 2s ate estado terminal (Completed ou Failed) ou timeout.
+# Poll a cada 2s ate estado terminal (Final ou Failed) ou timeout.
+# Com MassTransit o happy path termina em "Final", falhas em "Final" (FailureReason preenchido).
+# O status do pedido em si e consultado via GET /orders/{id}.
 # Imprime o estado final via echo — capturar com $().
 poll_saga() {
   local saga_id="$1"
@@ -49,7 +52,7 @@ poll_saga() {
 
   while [[ $elapsed -lt $timeout ]]; do
     state=$(curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
-    if [[ "$state" == "Completed" || "$state" == "Failed" ]]; then
+    if [[ "$state" == "Final" ]]; then
       echo "$state"
       return 0
     fi
@@ -58,15 +61,6 @@ poll_saga() {
   done
 
   echo "Timeout"
-}
-
-# get_transitions SAGA_ID
-# Retorna os estados "to" das transicoes separados por espaco.
-# Exemplo: "PaymentProcessing InventoryReserving ShippingScheduling Completed"
-get_transitions() {
-  local saga_id="$1"
-  curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null \
-    | jq -r '[.transitions[].to] | join(" ")'
 }
 
 # get_stock PRODUCT_ID

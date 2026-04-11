@@ -62,5 +62,6 @@ app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
 }));
 
 app.MapOrderEndpoints();
+app.MapSagaEndpoints();
 
 app.Run();

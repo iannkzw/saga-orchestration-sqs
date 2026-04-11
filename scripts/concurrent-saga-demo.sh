@@ -60,9 +60,8 @@ fi
 
 # --- Verificar saude dos servicos ---
 header "=== Verificando servicos ==="
-check_health "OrderService"    "$ORDER_URL"
+check_health "OrderService"     "$ORDER_URL"
 check_health "InventoryService" "$INVENTORY_URL"
-check_health "SagaOrchestrator" "$ORCHESTRATOR_URL"
 
 # --- Verificar / informar modo de lock ---
 header "=== Modo: $MODO_LOCK ==="
@@ -161,10 +160,10 @@ while true; do
   for saga_id in "${SAGA_IDS[@]}"; do
     [[ -z "$saga_id" ]] && continue
     current="${SAGA_STATES[$saga_id]:-}"
-    if [[ "$current" != "Completed" && "$current" != "Failed" ]]; then
+    if [[ "$current" != "Final" ]]; then
       STATE=$(curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
       SAGA_STATES["$saga_id"]="$STATE"
-      if [[ "$STATE" != "Completed" && "$STATE" != "Failed" ]]; then
+      if [[ "$STATE" != "Final" ]]; then
         PENDING=$((PENDING + 1))
       fi
     fi
@@ -196,7 +195,14 @@ for i in "${!SAGA_IDS[@]}"; do
   state="${SAGA_STATES[$saga_id]:-Timeout}"
   pedido_num=$((i + 1))
 
-  case "$state" in
+  # Obter status do pedido para distinguir Completed vs Failed
+  order_id="${ORDER_IDS[$i]}"
+  order_status="Unknown"
+  if [[ -n "$order_id" && "$state" == "Final" ]]; then
+    order_status=$(curl -sf "$ORDER_URL/orders/$order_id" 2>/dev/null | jq -r '.status // "Unknown"')
+  fi
+
+  case "$order_status" in
     Completed)
       COUNT_COMPLETED=$((COUNT_COMPLETED + 1))
       success "Saga $pedido_num ($saga_id): Completed"
@@ -207,7 +213,7 @@ for i in "${!SAGA_IDS[@]}"; do
       ;;
     *)
       COUNT_OTHER=$((COUNT_OTHER + 1))
-      error "Saga $pedido_num ($saga_id): $state (timeout ou erro)"
+      error "Saga $pedido_num ($saga_id): state=$state order_status=$order_status (timeout ou erro)"
       ;;
   esac
 done
@@ -250,4 +256,4 @@ log "Para ver logs do InventoryService:"
 log "  docker logs saga-inventory-service --tail=50"
 log ""
 log "Para ver estado de uma saga especifica:"
-log "  curl $ORCHESTRATOR_URL/sagas/<saga-id> | jq"
+log "  curl $ORDER_URL/sagas/<saga-id> | jq"

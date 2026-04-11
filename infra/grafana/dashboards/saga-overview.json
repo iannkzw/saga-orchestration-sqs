@@ -135,12 +135,11 @@
         "name": "service",
         "options": [
           { "selected": true, "text": "order-service", "value": "order-service" },
-          { "selected": false, "text": "saga-orchestrator", "value": "saga-orchestrator" },
           { "selected": false, "text": "payment-service", "value": "payment-service" },
           { "selected": false, "text": "inventory-service", "value": "inventory-service" },
           { "selected": false, "text": "shipping-service", "value": "shipping-service" }
         ],
-        "query": "order-service,saga-orchestrator,payment-service,inventory-service,shipping-service",
+        "query": "order-service,payment-service,inventory-service,shipping-service",
         "type": "custom",
         "label": "Service"
       },

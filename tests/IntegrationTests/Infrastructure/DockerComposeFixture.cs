@@ -16,18 +16,17 @@ public sealed class DockerComposeFixture : IAsyncLifetime
     private static readonly (string Name, string Url)[] ServiceHealthEndpoints =
     [
         ("order-service",      "http://localhost:5001/health"),
-        ("saga-orchestrator",  "http://localhost:5002/health"),
         ("payment-service",    "http://localhost:5003/health"),
         ("inventory-service",  "http://localhost:5004/health"),
         ("shipping-service",   "http://localhost:5005/health"),
     ];
 
-    // Filas SQS principais que devem existir antes dos serviços iniciarem
+    // Filas SQS que devem existir antes dos serviços iniciarem.
+    // Com MassTransit as filas são criadas pelos consumers via ConfigureEndpoints;
+    // aqui aguardamos as filas legadas ainda criadas pelo init-sqs.sh.
     private static readonly string[] RequiredQueues =
     [
-        "order-commands", "payment-commands", "payment-replies",
-        "inventory-commands", "inventory-replies",
-        "shipping-commands", "shipping-replies", "saga-commands"
+        "order-commands", "payment-commands", "inventory-commands", "shipping-commands"
     ];
 
     private const string LocalStackSqsUrl = "http://localhost:4566";

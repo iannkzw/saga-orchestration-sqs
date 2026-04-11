@@ -54,8 +54,7 @@ public sealed class ConcurrencyTests(ITestOutputHelper output)
         output.WriteLine($"Completed: {completed}, Failed: {failed}");
         foreach (var saga in sagas)
         {
-            var transitions = string.Join(" → ", saga.Transitions.Select(t => t.To));
-            output.WriteLine($"  Saga {saga.SagaId}: {saga.State} | {transitions}");
+            output.WriteLine($"  Saga {saga.SagaId}: {saga.State}");
         }
 
         Assert.Equal(InitialStock, completed);
