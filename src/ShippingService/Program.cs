@@ -1,11 +1,10 @@
 using MassTransit;
 using Shared.Extensions;
 using Shared.HealthChecks;
+using ShippingService.Consumers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Worker legado mantido até mt-consumers ser implementado
-builder.Services.AddHostedService<ShippingService.Worker>();
 var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhost:4566";
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
 builder.Services.AddSagaTracing("shipping-service");
@@ -13,7 +12,7 @@ builder.Services.AddSagaLogging("shipping-service");
 
 builder.Services.AddMassTransit(cfg =>
 {
-    // Consumer registrado em mt-consumers: ScheduleShippingConsumer
+    cfg.AddConsumer<ScheduleShippingConsumer, ScheduleShippingConsumerDefinition>();
 
     cfg.UsingAmazonSqs((context, sqsCfg) =>
     {
