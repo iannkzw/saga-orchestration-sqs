@@ -48,7 +48,7 @@
 - CorrelateById(ctx => ctx.Message.SagaId) em cada evento na state machine
 - Remover reply contracts antigos e SagaTerminatedNotification (M9 obsoleto)
 
-**mt-consumers** - PLANNED
+**mt-consumers** - DONE
 
 - Cada consumer fica no projeto/container do seu respectivo microsservico (preserva deploy independente):
   - PaymentService: ProcessPaymentConsumer, RefundPaymentConsumer
