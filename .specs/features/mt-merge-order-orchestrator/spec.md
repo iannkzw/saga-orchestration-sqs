@@ -1,7 +1,7 @@
 # Feature: mt-merge-order-orchestrator
 
 **Milestone:** M10 - Migração MassTransit
-**Status:** PLANNED
+**Status:** DONE
 
 ## Objetivo
 
