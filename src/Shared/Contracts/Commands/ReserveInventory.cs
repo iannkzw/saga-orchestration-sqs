@@ -1,13 +1,10 @@
 namespace Shared.Contracts.Commands;
 
+using Shared.Contracts.Events;
+
 public record ReserveInventory : BaseCommand
 {
+    public Guid CorrelationId { get; init; }
     public Guid OrderId { get; init; }
-    public List<InventoryItem> Items { get; init; } = [];
-}
-
-public record InventoryItem
-{
-    public string ProductId { get; init; } = string.Empty;
-    public int Quantity { get; init; }
+    public IReadOnlyList<OrderItem> Items { get; init; } = [];
 }
