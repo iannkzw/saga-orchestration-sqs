@@ -157,7 +157,7 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
 
     private static async Task UpdateOrderStatus(OrderDbContext db, OrderSagaInstance saga)
     {
-        var order = await db.Orders.FirstOrDefaultAsync(o => o.Id == saga.OrderId);
+        var order = await db.Orders.FirstOrDefaultAsync(o => o.SagaId == saga.CorrelationId);
         if (order is null) return;
 
         order.Status = saga.FailureReason is null ? OrderStatus.Completed : OrderStatus.Failed;

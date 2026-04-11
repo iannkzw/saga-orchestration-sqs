@@ -24,7 +24,7 @@ builder.Services.AddMassTransit(cfg =>
     cfg.AddSagaStateMachine<OrderStateMachine, OrderSagaInstance, OrderStateMachineDefinition>()
        .EntityFrameworkRepository(r =>
        {
-           r.ConcurrencyMode = ConcurrencyMode.Optimistic;
+           r.ConcurrencyMode = ConcurrencyMode.Pessimistic;
            r.AddDbContext<DbContext, OrderDbContext>((_, options) =>
                options.UseNpgsql(connectionString));
        });
