@@ -1,239 +1,185 @@
 # Roadmap
 
-**Current Milestone:** M8 - Observabilidade LGTM
-**Status:** DONE
+**Current Milestone:** M10 - Migração MassTransit
+**Status:** Planning
 
-**M7 - Testes de Integracao:** DONE
+> Milestones concluídas (M1–M8 DONE, M9 OBSOLETE) arquivadas em [ROADMAP-ARCHIVE.md](ROADMAP-ARCHIVE.md)
 
 ---
 
-## M1 - Infraestrutura Base
+## M10 - Migração MassTransit
 
-**Goal:** Todos os servicos sobem com `docker compose up`, filas SQS criadas no LocalStack, PostgreSQL acessivel, health checks passando.
-**Target:** Infraestrutura funcional e reproduzivel
+**Goal:** Migrar a saga orquestrada manual (SQS polling + state machine imperativa + idempotência manual) para MassTransit declarativo. Fundir OrderService + SagaOrchestrator em um unico OrderService (API + state machine). Eliminar ~900+ linhas, 9 filas SQS, dual-write, e bug de Order.Status preso em Processing (M9 obsoleto). Documentação didática reescrita para os novos conceitos.
+**Constraint:** Preservar arquitetura de microsserviços com 4 containers independentes (OrderService, PaymentService, InventoryService, ShippingService), cada um com seu proprio Program.cs e Dockerfile. Consumers ficam no servico correspondente, state machine fica no OrderService.
+**Status:** Planning
 
 ### Features
 
-**infra-docker-compose** - DONE
-
-- Docker Compose unificado com LocalStack, PostgreSQL e 5 servicos .NET
-- Init scripts para criacao automatica das filas SQS
-- Init SQL para schemas do PostgreSQL
-- Health checks em todos os containers
-
-**project-skeleton** - DONE
-
-- Solution .NET com 5 projetos (OrderService, SagaOrchestrator, PaymentService, InventoryService, ShippingService) + Shared
-- Directory.Build.props e global.json configurados para .NET 10
-- Projeto Shared com contracts (commands/replies), SQS helpers e modelo de IdempotencyKey
-- Minimal API no OrderService, Worker Services nos demais
-- Cada servico conecta ao SQS e PostgreSQL (smoke test de conectividade)
-
----
-
-## M2 - Saga Happy Path
-
-**Goal:** Fluxo completo Order -> Payment -> Inventory -> Shipping funciona end-to-end sem falhas. POST no OrderService inicia saga, orquestrador coordena todos os passos, saga termina em estado Completed.
-**Target:** Happy path demonstravel via curl/script
-
-### Features
-
-**saga-state-machine** - DONE
-
-- Modelo de persistencia da saga (SagaId, estado atual, historico de transicoes)
-- Maquina de estados no SagaOrchestrator (Pending -> PaymentProcessing -> InventoryReserving -> ShippingScheduling -> Completed)
-- Transicoes acionadas por replies dos servicos via SQS
-- EF Core + Npgsql com SagaDbContext, EnsureCreated no startup
-- Endpoints POST /sagas e GET /sagas/{id} para teste manual
-
-**command-reply-flow** - DONE
-
-- Orquestrador envia comandos tipados (ProcessPayment, ReserveInventory, ScheduleShipping) via filas SQS dedicadas
-- Cada servico processa o comando e envia reply (Success/Failure) para fila de resposta do orquestrador
-- Correlation via SagaId em todas as mensagens
-
-**order-api** - DONE
-
-- Endpoint POST /orders que cria pedido e inicia saga via HTTP ao orquestrador
-- Endpoint GET /orders/{id} que retorna estado atual do pedido e da saga
-- Persistencia do pedido no PostgreSQL com EF Core + Npgsql
-
----
-
-## M3 - Compensacoes e Resiliencia — DONE
-
-**Goal:** Quando um passo falha, o orquestrador executa compensacoes na ordem reversa. Mensagens problematicas vao para DLQ. Handlers sao idempotentes.
-**Target:** Cenarios de falha demonstraveis e reproduziveis
-
-### Features
-
-**compensation-cascade** - DONE
-
-- Estados de compensacao: ShippingCancelling, InventoryReleasing, PaymentRefunding, Failed
-- Compensacoes na ordem reversa baseada no ponto de falha
-- Comandos: RefundPayment, ReleaseInventory, CancelShipping com replies correspondentes
-- CompensationDataJson armazena metadados (TransactionId, ReservationId, TrackingNumber)
-- Simulacao de falha via header X-Simulate-Failure (payment|inventory|shipping)
-- Message attribute CommandType para despacho de comandos forward vs compensacao
-
-**idempotency** - DONE
-
-- IdempotencyKey em todos os comandos (BaseCommand)
-- IdempotencyStore centralizado em Shared/Idempotency (Npgsql direto, tabela idempotency_keys)
-- Handlers nos 3 servicos (Payment, Inventory, Shipping) verificam chave antes de processar
-- Se ja processado, retorna resultado anterior sem reprocessar
-- Aplicado em comandos forward (ProcessPayment, ReserveInventory, ScheduleShipping) E de compensacao (RefundPayment, ReleaseInventory, CancelShipping)
-
-**dlq-visibility** - DONE
-
-- Dead Letter Queue configurada para cada fila SQS (maxReceiveCount=3)
-- Endpoint GET /dlq no SagaOrchestrator lista mensagens de todas as 8 DLQs
-- Cada mensagem inclui: queue name, body (JSON), ApproximateReceiveCount, SentTimestamp
-- Endpoint POST /dlq/redrive reenvia mensagem da DLQ para a fila original
-- SqsConfig com AllDlqNames e DlqToOriginalQueue para mapeamento centralizado
-
----
-
-## M4 - Observabilidade e Documentacao
-
-**Goal:** Traces distribuidos conectam toda a saga. Documentacao didatica completa em portugues cobre todos os padroes demonstrados.
-**Target:** PoC completa, documentada e pronta para publicacao
-
-### Features
-
-**otel-traces** - DONE
-
-- OpenTelemetry SDK integrado em todos os servicos (v1.15.0)
-- Trace propagation via SQS message attributes (W3C TraceContext)
-- Console exporter como default, OTLP configuravel via OTEL_EXPORTER_OTLP_ENDPOINT
-- SagaId como tag/attribute nos spans (saga.id, saga.command_type, saga.state)
-- Instrumentacao automatica HTTP (AspNetCore + HttpClient)
-- ActivitySource compartilhada "SagaOrchestration" com factory methods padronizados
-
-**docs-didaticos** - DONE
-
-- docs/01-fundamentos-sagas.md: Saga vs 2PC, orquestrada vs coreografada, justificativa da escolha
-- docs/02-maquina-de-estados.md: Diagrama completo, estados forward/compensacao/terminal, implementacao pura estatica
-- docs/03-padroes-compensacao.md: Cascata reversa, CompensationDataJson, HandleFailureAsync/HandleCompensationReplyAsync
-- docs/04-idempotencia-retry.md: IdempotencyStore (Npgsql), chaves por saga, fluxo com idempotency hit, visibility timeout
-- docs/05-sqs-dlq-visibility.md: Topologia de filas, RedrivePolicy, GET /dlq e POST /dlq/redrive com exemplos
-- docs/06-opentelemetry-traces.md: W3C TraceContext sobre SQS, SagaActivitySource, AddSagaTracing, exporters
-- docs/07-concorrencia-sagas.md: Race conditions, pessimistic vs optimistic locking, comparativo, estrategias (teorico/M5)
-- docs/08-guia-pratico.md: Passo a passo completo para todos os cenarios com curl, troubleshooting
-
-**readme-walkthrough** - DONE
-
-- README.md com walkthrough canonico da demo
-- Instrucoes de setup (pre-requisitos, docker compose up)
-- Exemplos de curl para happy path, falha/compensacao, DLQ visibility
-- Script automatizado (happy-path-demo.sh) e demo de concorrencia
-- Estrutura de diretorios comentada, tabela de portas, links para 8 docs
-
----
-
-## M5 - Concorrencia entre Sagas
-
-**Goal:** Demonstrar como lidar com multiplas sagas concorrentes que disputam o mesmo recurso (ex: mesmo produto no inventario). Exemplo pratico de pessimistic locking no PostgreSQL para evitar race conditions.
-**Target:** Cenario reproduzivel onde 2+ sagas concorrentes sobre o mesmo recurso sao tratadas corretamente
-
-### Features
-
-**resource-locking** - DONE
-
-- InventoryRepository com Npgsql direto: tabelas inventory + inventory_reservations
-- SELECT FOR UPDATE (useLock=true) vs sem lock (useLock=false) controlado por INVENTORY_LOCKING_ENABLED
-- Worker processa mensagens em paralelo (Task.WhenAll) para expor race conditions reais
-- Endpoints GET /inventory/stock/{productId} e POST /inventory/reset para demos
-- INVENTORY_LOCKING_ENABLED env var no docker-compose.yml (default: true)
-
-**concurrent-saga-demo** - DONE
-
-- Script bash scripts/concurrent-saga-demo.sh com opcoes --no-lock, --pedidos N, --estoque N
-- Reset de estoque + 5 pedidos paralelos + polling de estado das sagas
-- Cenario: estoque=2, 5 pedidos → 2 Completed + 3 Failed com compensacao (COM lock)
-- docs/07-concorrencia-sagas.md atualizado com implementacao real, logs e saidas esperadas
-
-**demo-scripts** - DONE
-
-- `scripts/lib/common.sh`: funcoes compartilhadas (check_health, poll_saga, get_transitions, get_stock, reset_stock)
-- `scripts/concurrent-saga-demo.sh` reescrito: corrige loop duplo (Bug 1), deteccao real de lock via docker logs (Bug 2), remove dead code RAW_RESPONSES (Bug 3)
-- `scripts/happy-path-demo.sh`: 4 cenarios sequenciais com verificacoes de transicoes e estoque
-
----
-
----
-
-## M6 - Optimistic Locking (extensao do M5)
-
-**Goal:** Demonstrar locking otimista como alternativa ao pessimistic locking com comportamento, throughput e complexidade diferentes sob concorrencia real.
-**Status:** DONE
-
-### Features
-
-**optimistic-locking** - DONE
-
-- Coluna `version INTEGER NOT NULL DEFAULT 0` na tabela `inventory` (ADD COLUMN IF NOT EXISTS)
-- `TryReserveOptimisticAsync`: SELECT sem lock + UPDATE WHERE version = @expected + retry automatico
-- `INVENTORY_LOCKING_MODE` (pessimistic|optimistic|none) substitui `INVENTORY_LOCKING_ENABLED` (mantida como fallback)
-- `INVENTORY_OPTIMISTIC_MAX_RETRIES` configuravel (default: 3)
-- Worker atualizado com switch expression para despachar ao metodo correto
-- `ResetStockAsync` zera `version=0` para demos reproduziveis
-- docs/07-concorrencia-sagas.md: secao de implementacao real do modo otimista com logs esperados
-
----
-
-## M7 - Testes de Integração
-
-**Goal:** Suite automatizada de testes que valida todos os comportamentos implementados nos M1–M5 sem depender de execução manual com curl.
-**Status:** DONE
-
-### Features
-
-**integration-tests** - DONE
-
-- Projeto xUnit `tests/IntegrationTests/` adicionado à solution
-- `DockerComposeFixture`: sobe/derruba Docker Compose via Process com polling de health checks em todos os 5 serviços
-- `SagaClient`: encapsula `POST /orders` e `GET /sagas/{id}` com polling `WaitForTerminalStateAsync` (timeout 30s)
-- `InventoryClient`: encapsula `GET /inventory/stock` e `POST /inventory/reset`
-- 7 cenários implementados: happy path, 3 compensações (payment/inventory/shipping), isolamento/idempotência, concorrência com lock, concorrência documentacional
-- `docker-compose.test.yml`: override com `INVENTORY_LOCKING_MODE=pessimistic` para testes determinísticos
-- Comando: `dotnet test tests/IntegrationTests/`
-
----
-
-## M8 - Observabilidade LGTM
-
-**Goal:** Traces distribuidos visiveis no Grafana/Tempo e logs estruturados no Grafana/Loki, com correlacao TraceId entre ambos. OTel Collector como intermediario com tail sampling.
-**Status:** TODO
-
-### Features
-
-**otel-lgtm** - DONE
-
-- Stack LGTM (Grafana + Tempo + Loki) no Docker Compose via grafana/otel-lgtm:latest
-- OTel Collector (otel/opentelemetry-collector-contrib:latest) com tail sampling (drop /health, keep errors, sample-default)
-- Exportacao de logs via OpenTelemetry (ILogger -> OTLP gRPC -> Collector -> Loki)
-- Correlacao automatica TraceId/SpanId nos logs via provider OTel
-- Datasources Tempo + Loki provisionados no Grafana (infra/grafana/provisioning/)
-- Dashboard "Saga Orchestration - Overview" provisionado (variavel $service, paineis Traces/Logs/Trace por Saga ID)
-- Console exporter condicional — removido quando OTLP configurado
-
----
-
-## M9 - Sincronização de Status do Pedido
-
-**Goal:** Corrigir o bug em que `Order.Status` fica permanentemente preso em `Processing`. O `SagaOrchestrator` passa a publicar notificações de estado terminal na fila `order-status-updates`, e um novo Worker no `OrderService` consome essa fila e atualiza o banco.
-**Status:** TODO
-
-### Features
-
-**order-status-sync** - TODO
-
-- Nova fila SQS `order-status-updates` (+ DLQ) no LocalStack
-- Contrato compartilhado `SagaTerminatedNotification` em `Shared/Contracts/Notifications/`
-- `SagaOrchestrator.Worker` publica notificação ao atingir `Completed` ou `Failed`
-- Novo `OrderService.Worker` consome `order-status-updates` e atualiza `Order.Status` no PostgreSQL
-- `GET /orders/{id}` passa a retornar `status = Completed/Failed` após fluxo completo
+**mt-merge-order-orchestrator** - PLANNED
+
+- Fundir SagaOrchestrator no OrderService (mesmo bounded context: order fulfillment)
+- Justificativa: com MassTransit, a state machine e declarativa (~1 classe) — nao justifica um servico dedicado
+- Mover SagaDbContext, OrderSagaState e OrderStateMachine para dentro do OrderService
+- Unificar OrderDbContext e SagaDbContext em um unico DbContext (Orders + SagaState na mesma DB/transacao)
+- Eliminar HTTP hop OrderService → SagaOrchestrator (POST /sagas): OrderService publica OrderCreated direto no bus
+- Absorver endpoints GET /sagas/{id} no OrderService (ou expor via GET /orders/{id} com saga embutida, como ja faz hoje)
+- Resolver bug Order.Status preso em Processing: state machine atualiza Order.Status diretamente nas transicoes terminais (Completed/Failed) — torna M9 obsoleto
+- Remover projeto SagaOrchestrator, Dockerfile e container do docker-compose
+- Remover Worker.cs do OrderService (polling de order-status-updates) — nao mais necessario
+- Remover fila SQS order-status-updates e sua DLQ
+- De 5 para 4 containers .NET no docker-compose
+
+**mt-state-machine** - PLANNED
+
+- Criar `OrderSagaState : SagaStateMachineInstance` com propriedades tipadas (PaymentTransactionId, InventoryReservationId, ShippingTrackingNumber, RowVersion)
+- Criar `OrderStateMachine : MassTransitStateMachine<OrderSagaState>` com blocos Initially/During/When declarativos
+- State machine e saga state ficam no projeto OrderService (unico container com API + saga)
+- Happy path: Pending → PaymentProcessing → InventoryReserving → ShippingScheduling → Completed
+- Compensation chain: ShippingCancelling → InventoryReleasing → PaymentRefunding → Failed
+- Transicoes terminais (Completed/Failed) atualizam Order.Status no mesmo DbContext
+- SetCompletedWhenFinalized() para cleanup automatico
+- Remover SagaStateMachine.cs imperativo, enums SagaState, dicionarios estaticos de transicao
+
+**mt-event-contracts** - PLANNED
+
+- Criar contratos de evento em Shared/Contracts/Events/ (PaymentCompleted, PaymentFailed, InventoryReserved, InventoryReservationFailed, ShippingScheduled, ShippingFailed, etc.)
+- Criar contrato OrderCreated para iniciar a saga (substitui HTTP POST /sagas)
+- Substituir Reply types (ProcessPaymentReply, etc.) por eventos tipados
+- CorrelateById(ctx => ctx.Message.SagaId) em cada evento na state machine
+- Remover reply contracts antigos e SagaTerminatedNotification (M9 obsoleto)
+
+**mt-consumers** - PLANNED
+
+- Cada consumer fica no projeto/container do seu respectivo microsservico (preserva deploy independente):
+  - PaymentService: ProcessPaymentConsumer, RefundPaymentConsumer
+  - InventoryService: ReserveInventoryConsumer, ReleaseInventoryConsumer
+  - ShippingService: ScheduleShippingConsumer, CancelShippingConsumer
+- Consumers publicam eventos (context.Publish<TEvent>) em vez de enviar para reply queues
+- Remover Worker.cs com polling loop manual dos 3 servicos (Payment, Inventory, Shipping)
+- Remover despacho manual por MessageAttribute CommandType
+
+**mt-messaging-infra** - PLANNED
+
+- Configurar MassTransit UsingAmazonSqs com ConfigureEndpoints(context) no Program.cs de cada servico (4 Program.cs independentes)
+- Cada microsservico registra apenas seus proprios consumers no AddMassTransit (isolamento de deploy)
+- OrderService registra state machine + saga repository; servicos registram seus consumers
+- Criacao automatica de filas pelo MassTransit (eliminar init-sqs.sh manual)
+- Remover SqsConfig.cs, SqsTracePropagation.cs, polling loops manuais
+- Remover GetQueueUrlAsync, SendMessageAsync, ReceiveMessageAsync manuais
+- Trace propagation automatico via MassTransit OpenTelemetry (AddSource("MassTransit"))
+
+**mt-idempotency** - PLANNED
+
+- Remover IdempotencyStore.cs e tabela idempotency_keys
+- Substituir por dupla camada MassTransit: saga correlation (layer 1) + EF Outbox DuplicateDetectionWindow (layer 2)
+- Remover verificacoes TryGetAsync/SaveAsync dos 6 handlers nos 3 servicos
+- Remover IdempotencyKey dos contratos de comando
+
+**mt-concurrency** - PLANNED
+
+- Adicionar RowVersion (byte[]) no OrderSagaState com IsRowVersion() no DbContext
+- Configurar ConcurrencyMode.Optimistic no registro do saga repository no OrderService
+- Retry automatico pelo MassTransit em DbUpdateConcurrencyException
+- Resolver TODO de divida tecnica existente no Worker.cs sobre validacao de concorrencia
+
+**mt-outbox-dlq** - PLANNED
+
+- Configurar AddEntityFrameworkOutbox<OrderDbContext> com UsePostgres(), DuplicateDetectionWindow, QueryDelay (DbContext unificado)
+- Adicionar entidades Outbox no EF: AddOutboxMessageEntity(), AddOutboxStateEntity(), AddInboxStateEntity()
+- Criar EF migration para tabelas do Outbox
+- Resolver dual-write (HIGH-02 do code-review): mensagens salvas na mesma transacao que o estado
+- Configurar retry/circuit breaker policies no MassTransit
+- Remover endpoints GET /dlq e POST /dlq/redrive (~90 linhas)
+
+**mt-db-migration** - PLANNED
+
+- Unificar OrderDbContext + SagaDbContext em um unico DbContext no OrderService (Orders + SagaState + Outbox)
+- Criar EF migration para novo schema: OrderSagaState com propriedades tipadas + RowVersion + tabelas Outbox
+- Remover EnsureCreated() manual e CreateTablesAsync(), usar migrations do EF Core
+- Atualizar init-db.sql para schema compativel com novo modelo
+
+**mt-program-config** - PLANNED
+
+- Configurar MassTransit individualmente no Program.cs de cada microsservico (4 configs independentes):
+  - OrderService: AddMassTransit + AddSagaStateMachine + AddEntityFrameworkOutbox + Minimal API
+  - PaymentService: AddMassTransit + AddConsumers (ProcessPayment, RefundPayment)
+  - InventoryService: AddMassTransit + AddConsumers (ReserveInventory, ReleaseInventory)
+  - ShippingService: AddMassTransit + AddConsumers (ScheduleShipping, CancelShipping)
+- Adicionar pacotes NuGet: MassTransit, MassTransit.AmazonSQS, MassTransit.EntityFrameworkCore
+- Remover ServiceCollectionExtensions manuais de SQS onde substituidos
+- Remover registro manual de filas, polling workers e HttpClient para SagaOrchestrator
+
+**mt-cleanup** - PLANNED
+
+- Remover projeto SagaOrchestrator inteiro (csproj, Dockerfile, Worker.cs, Models/, StateMachine/, Data/)
+- Remover Worker.cs dos 3 servicos (Payment, Inventory, Shipping) e do OrderService
+- Remover SqsConfig.cs, SqsTracePropagation.cs, IdempotencyStore.cs, IdempotencyRecord.cs
+- Remover reply queues e DLQs manuais do init-sqs.sh (9+ filas eliminadas)
+- Remover SagaTerminatedNotification e fila order-status-updates
+- Remover models/helpers de reply routing manual
+- Atualizar saga-orchestration.sln (remover SagaOrchestrator, de 6 para 5 projetos)
+- Limpar usings, references e dead code em todo o solution
+
+**mt-infra-docker** - PLANNED
+
+- Atualizar docker-compose.yml: 4 containers .NET (remover saga-orchestrator), portas ajustadas
+- Remover Dockerfile do SagaOrchestrator
+- Atualizar docker-compose.test.yml para 4 servicos
+- Revisar init-sqs.sh (ou remover se MassTransit criar filas automaticamente)
+- Atualizar init-db.sql com schema das tabelas Outbox + SagaState unificado
+- Verificar compatibilidade LocalStack com MassTransit AmazonSQS transport
+- Atualizar health check targets (4 servicos em vez de 5)
+
+**mt-integration-tests** - PLANNED
+
+- Adaptar DockerComposeFixture para 4 containers (remover saga-orchestrator health check)
+- Atualizar SagaClient para apontar ao OrderService (endpoints /sagas agora em /orders ou unificados)
+- Atualizar os 7 cenarios existentes (happy path, 3 compensacoes, isolamento, concorrencia)
+- Novo cenario: validar que Order.Status atualiza para Completed/Failed (bug M9 resolvido)
+- Validar que Outbox entrega mensagens corretamente em cenarios de falha
+- Validar retry automatico em conflitos de concorrencia (RowVersion)
+- Validar deduplicacao via DuplicateDetectionWindow
+- Garantir 0 regressoes nos comportamentos existentes
+
+**mt-demo-scripts** - PLANNED
+
+- Atualizar scripts/happy-path-demo.sh para nova arquitetura (4 servicos, endpoints unificados)
+- Atualizar scripts/concurrent-saga-demo.sh para novos endpoints/comportamentos
+- Atualizar scripts/lib/common.sh: ajustar URLs e health checks (4 servicos)
+- Remover referencias ao saga-orchestrator como servico separado
+- Validar que todos os cenarios de demo continuam reproduziveis
+
+**mt-docs-didaticos** - PLANNED
+
+- Atualizar docs/01-fundamentos-sagas.md: justificativa da fusao OrderService + Orchestrator
+- Reescrever docs/02-maquina-de-estados.md para MassTransit state machine declarativa
+- Reescrever docs/03-padroes-compensacao.md para compensacao tipada (sem CompensationDataJson)
+- Reescrever docs/04-idempotencia-retry.md para dupla camada MassTransit (saga correlation + Outbox)
+- Reescrever docs/05-sqs-dlq-visibility.md para topologia simplificada + Outbox + retry policies
+- Atualizar docs/06-opentelemetry-traces.md para instrumentacao automatica MassTransit
+- Atualizar docs/07-concorrencia-sagas.md para RowVersion + ConcurrencyMode.Optimistic no saga state
+- Atualizar docs/08-guia-pratico.md com novos comandos curl, fluxos MassTransit e 4 servicos
+- Novo doc: docs/09-masstransit-overview.md — visao geral do framework, conceitos (state machine, consumers, outbox, transports)
+- Novo doc: docs/10-comparativo-manual-vs-masstransit.md — antes/depois com metricas de linhas, filas, containers e complexidade
+
+**mt-readme** - PLANNED
+
+- Atualizar README.md com nova arquitetura MassTransit (4 microsservicos)
+- Atualizar diagrama de arquitetura (OrderService como orquestrador, topologia de filas simplificada)
+- Atualizar instrucoes de setup e pre-requisitos (novos pacotes NuGet)
+- Atualizar exemplos de curl (endpoints unificados no OrderService)
+- Atualizar tabela de portas (4 servicos) e estrutura de diretorios (sem SagaOrchestrator)
+- Atualizar sumario dos docs didaticos (incluir novos docs 09 e 10)
+
+**mt-codebase-docs** - PLANNED
+
+- Criar/atualizar .specs/codebase/STACK.md com MassTransit + dependencias
+- Criar/atualizar .specs/codebase/ARCHITECTURE.md com nova arquitetura (4 servicos, OrderService como orquestrador)
+- Criar/atualizar .specs/codebase/CONVENTIONS.md com padroes MassTransit (naming, consumers, events)
+- Criar/atualizar .specs/codebase/STRUCTURE.md com nova organizacao de pastas (sem SagaOrchestrator)
+- Criar/atualizar .specs/codebase/TESTING.md com estrategia de testes MassTransit
+- Criar/atualizar .specs/codebase/INTEGRATIONS.md com MassTransit + SQS + EF Core Outbox
+- Criar/atualizar .specs/codebase/CONCERNS.md com riscos e debt pos-migracao
 
 ---
 

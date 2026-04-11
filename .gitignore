@@ -17,3 +17,5 @@ Thumbs.db
 .DS_Store
 .claude/
 .specs/prompts/
+saga-orchestration-dotnet-sqs.code-workspace
+CLAUDE.md

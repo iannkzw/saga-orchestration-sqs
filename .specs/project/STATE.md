@@ -1,34 +1,10 @@
 # State
 
+> Decisions de M1–M8 arquivadas em [STATE-ARCHIVE.md](STATE-ARCHIVE.md)
+
 ## Decisions
 
-- **2026-03-28:** Projeto inicializado com spec-driven workflow. Milestones M1-M4 definidos seguindo o PROMPT-INIT.md.
-- **2026-03-28:** Feature infra-docker-compose implementada (T1-T6). Docker Compose, LocalStack, PostgreSQL, 5 servicos .NET placeholder com health checks.
-- **2026-03-28:** "Multiplas sagas concorrentes" movido de out-of-scope para M5 com exemplo didatico. Adicionado doc sobre concorrencia no M4 (docs-didaticos).
-- **2026-03-28:** Feature project-skeleton implementada (T1-T8). Solution .NET com 6 projetos, Directory.Build.props, global.json, projeto Shared com contracts/replies/SqsConfig, Worker Services, smoke tests de conectividade SQS+PostgreSQL. M1 concluido.
-- **2026-03-28:** Feature saga-state-machine implementada (T1-T7). EF Core + Npgsql no SagaOrchestrator, modelo SagaInstance/SagaStateTransition, SagaStateMachine com transicoes, Worker com polling de replies, endpoints POST/GET /sagas.
-- **2026-03-28:** Feature command-reply-flow implementada (T1-T3). Workers do PaymentService, InventoryService e ShippingService fazem polling de comandos, simulam processamento e enviam replies com Success=true. Correlation via SagaId preservado.
-- **2026-03-28:** Feature order-api implementada (T1-T6). OrderService com EF Core + Npgsql, modelo Order, POST /orders (cria pedido + inicia saga via HTTP), GET /orders/{id} (retorna pedido + estado da saga). M2 concluido.
-- **2026-03-28:** Feature compensation-cascade implementada. Estados de compensacao (ShippingCancelling, InventoryReleasing, PaymentRefunding, Failed) na maquina de estados. Comandos de compensacao (RefundPayment, ReleaseInventory, CancelShipping) e replies correspondentes. Worker do orquestrador processa falhas e cascata de compensacao. Service workers despacham comandos forward e de compensacao via message attribute CommandType. Simulacao de falha via header X-Simulate-Failure propagado do OrderService ao orquestrador e aos comandos SQS. CompensationDataJson na SagaInstance armazena metadados de steps completos para uso nos comandos de compensacao.
-- **2026-03-28:** Feature idempotency implementada. IdempotencyStore centralizado em Shared/Idempotency com Npgsql direto (sem EF Core). Tabela idempotency_keys (idempotency_key PK, saga_id, result_json, created_at) criada automaticamente via EnsureTableAsync. Aplicada nos 3 service workers (Payment, Inventory, Shipping) para comandos forward E de compensacao. Cada handler verifica a chave antes de processar — se ja processado, reenvia o reply anterior sem reprocessar.
-
-- **2026-03-28:** Feature dlq-visibility implementada. Endpoint GET /dlq no SagaOrchestrator lista mensagens de todas as 8 DLQs (peek com VisibilityTimeout=0). Endpoint POST /dlq/redrive reenvia mensagem da DLQ para a fila original e deleta da DLQ. SqsConfig ampliado com AllDlqNames (array das 8 DLQs) e DlqToOriginalQueue (mapeamento DLQ->fila original). M3 concluido.
-
-- **2026-03-29:** Feature otel-traces implementada. OpenTelemetry SDK 1.15.0 integrado em todos os 5 servicos via Shared. Trace propagation via W3C TraceContext em SQS message attributes (SqsTracePropagation helper). SagaActivitySource com factory methods para spans padronizados (send/process command/reply). Console exporter como default, OTLP configuravel via env var. Instrumentacao automatica AspNetCore + HttpClient. Pacotes Microsoft.Extensions atualizados de preview para 10.0.0 estavel (compatibilidade com OTel 1.15.0). Decisao: sem instrumentacao de DB (EF Core/Npgsql) — complexidade sem valor didatico.
-
-- **2026-03-31:** Feature resource-locking implementada. InventoryRepository com Npgsql direto: tabelas inventory (product_id, name, quantity) e inventory_reservations (reservation_id, product_id, quantity, saga_id). TryReserveAsync com SELECT FOR UPDATE (useLock=true) ou sem lock + delay 150ms (useLock=false) para expor TOCTOU. ReleaseAsync para compensacao. Worker atualizado para processar mensagens em paralelo (Task.WhenAll) — critico para demo de race condition. Endpoints /inventory/stock e /inventory/reset adicionados. INVENTORY_LOCKING_ENABLED env var no docker-compose.yml.
-
-- **2026-03-31:** Feature concurrent-saga-demo implementada. Script bash scripts/concurrent-saga-demo.sh com opcoes --no-lock, --pedidos N, --estoque N. Reseta estoque, dispara pedidos paralelos, poll de sagas e diagnostico de overbooking. docs/07-concorrencia-sagas.md reescrito com implementacao real, schema SQL, logs esperados e instrucoes de execucao. M5 concluido.
-
-- **2026-04-01:** Feature demo-scripts implementada. `scripts/concurrent-saga-demo.sh` reescrito corrigindo 3 bugs (loop duplo, --no-lock sem efeito, RAW_RESPONSES dead code). `scripts/happy-path-demo.sh` criado com 4 cenarios sequenciais (happy path, falha pagamento, falha inventario, falha shipping). Funcoes compartilhadas extraidas para `scripts/lib/common.sh` (check_health, poll_saga, get_transitions, get_stock, reset_stock).
-
-- **2026-04-02:** Feature readme-walkthrough implementada. README.md criado na raiz com: visão geral do projeto, pré-requisitos, setup rápido com saída esperada, 4 demos via curl (happy path, falha pagamento, falha inventário, falha shipping), referência aos scripts automatizados, demo de concorrência com/sem lock, DLQ visibility, estrutura de diretórios comentada, tabela de portas e sumário dos 8 docs didáticos. Todos os milestones M1–M5 + README concluídos.
-
-- **2026-04-02:** Feature integration-tests implementada. Projeto xUnit `tests/IntegrationTests/` adicionado à solution. DockerComposeFixture sobe/derruba o compose via Process com polling de health checks. SagaClient e InventoryClient encapsulam os endpoints HTTP. 7 cenários cobertos: happy path (T1), 3 cenários de compensação (T2-T4), 2 testes de isolamento/idempotência (T5), concorrência com lock (T6), concorrência documentacional sem lock (T7). Build: 0 erros, 0 warnings. Decisao tecnica: await de tuples nao suportado em .NET 10 preview — usar Task.WhenAll com array. JsonElement nao e nullable — usar response.Content.ReadFromJsonAsync diretamente.
-
-- **2026-04-03:** Feature code-review concluída. Revisão estática de toda a implementação M1–M5 sem execução de testes. 16 findings documentados (0 CRITICAL, 2 HIGH, 6 MEDIUM, 4 LOW, 4 INFO). Relatório em `.specs/features/code-review/REPORT.md`. Principais riscos: [HIGH-01] grep case-sensitive quebra `--no-lock` no `concurrent-saga-demo.sh`; [HIGH-02] dual-write não-atômico no SagaOrchestrator (estado salvo, comando não enviado em falha parcial). Nenhuma correção implementada nesta sessão.
-
-- **2026-04-03:** Feature otel-lgtm implementada (M8). Stack LGTM adicionada ao Docker Compose (grafana/otel-lgtm:latest + otel/opentelemetry-collector-contrib:latest). OTel Collector configurado com tail sampling (drop /health GET status 200/UNSET, keep errors, sample-all default), memory_limiter e batch. AddSagaLogging() criado em Shared/Extensions/ServiceCollectionExtensions.cs com AddLogging+AddOpenTelemetry, IncludeFormattedMessage=true, IncludeScopes=true, AddOtlpExporter condicional (gRPC). AddSagaTracing() ajustado: console exporter somente quando OTLP nao configurado (mutuamente exclusivo). Service names padronizados para kebab-case em todos os 5 Program.cs (order-service, saga-orchestrator, payment-service, inventory-service, shipping-service). Grafana provisionado com datasources Tempo+Loki (correlacao TraceId bidirecional) e dashboard "Saga Orchestration - Overview" com variaveis $service e $saga_id, 3 paineis (Traces Recentes, Logs, Trace por Saga ID). OTEL_EXPORTER_OTLP_ENDPOINT e OTEL_SERVICE_NAME configurados nos 5 servicos .NET. Build: 0 erros, 0 warnings.
+- **2026-04-04:** Milestone M10 (Migração MassTransit) criada no ROADMAP com 18 features. Decisao arquitetural: fundir OrderService + SagaOrchestrator em um unico OrderService. Justificativa: com MassTransit a state machine e declarativa (~1 classe), nao justifica servico dedicado; elimina HTTP hop anti-pattern (POST /sagas); resolve bug Order.Status preso em Processing (M9 tornado obsoleto); Order e Saga sao do mesmo bounded context (order fulfillment). Resultado: 4 microsservicos independentes (OrderService, PaymentService, InventoryService, ShippingService) em vez de 5. Escopo total: ~900+ linhas eliminadas, 9+ filas SQS removidas, dual-write resolvido, docs reescritos (8 existentes + 2 novos), 7 docs codebase.
 
 ## Blockers
 
@@ -40,18 +16,13 @@ _Nenhum no momento._
 - **.NET 10 preview aspnet image:** Nao inclui `curl` nem `wget`. Necessario instalar `curl` via apt no Dockerfile para health checks do Docker Compose
 - **.NET 10 csproj:** Precisa de `<ImplicitUsings>enable</ImplicitUsings>` para `WebApplication` funcionar sem `using` explicito
 - **AWSSDK.SQS v4 preview:** Versao 4.0.0-preview.5 e necessaria para .NET 10 — versao 3.x nao e compativel
-- **EF Core 10 preview:** Versao exata 10.0.0-preview.3.25171.1 nao existe no NuGet — usar 10.0.0-preview.3.25171.6. Npgsql.EFCore 10.0.0-preview.3 e compativel
+- **EF Core 10 preview:** Usar 10.0.0-preview.3.25171.6. Npgsql.EFCore 10.0.0-preview.3 e compativel
 - **Dockerfile com Shared:** Build context precisa ser raiz do repo (nao src/Service) para copiar Directory.Build.props e Shared
-- **OpenTelemetry 1.15.0 + .NET 10:** OTel 1.15.0 depende de Microsoft.Extensions.*.Abstractions 10.0.0 (estavel). Versoes preview (10.0.0-preview.3) causam NU1605 (downgrade detectado). Atualizar para 10.0.0 estavel resolve
-- **SQS trace propagation manual:** AWSSDK.SQS nao tem instrumentacao OTel nativa. Necessario inject/extract manual de traceparent/tracestate via MessageAttributes usando Propagators.DefaultTextMapPropagator
-
-## Lessons Learned (M5)
-
-- **Task.WhenAll no SQS worker:** Para expor race conditions realmente, o worker precisa processar mensagens do mesmo batch em paralelo. O foreach sequencial nunca gera concorrencia real, mesmo sem lock. Task.WhenAll com mensagens do mesmo ReceiveMessage batch e a abordagem correta.
-- **Delay artificial como janela TOCTOU:** Adicionar Task.Delay(150ms) entre SELECT e UPDATE (modo sem lock) garante que multiplas transacoes paralelas vejam o mesmo valor antes de qualquer UPDATE. Sem o delay, a velocidade do Npgsql pode serializar naturalmente mesmo sem FOR UPDATE.
-- **inventory_reservations como ponte de compensacao:** Armazenar reservation_id na tabela inventory_reservations com referencia ao product_id e qty permite que a compensacao (ReleaseInventory) restaure exatamente o estoque correto sem depender de logica no orquestrador.
-
-- **2026-04-02:** Feature optimistic-locking implementada. Coluna `version INTEGER NOT NULL DEFAULT 0` adicionada via `ALTER TABLE IF NOT EXISTS` no `EnsureTablesAsync`. `TryReserveOptimisticAsync` com loop de retry (SELECT sem lock + UPDATE WHERE version = @expected; rowsAffected==0 → retry). Env var `INVENTORY_LOCKING_MODE` (pessimistic|optimistic|none) substitui `INVENTORY_LOCKING_ENABLED` (mantida como fallback de compatibilidade). `INVENTORY_OPTIMISTIC_MAX_RETRIES` controla tentativas (default: 3). Worker atualizado com switch expression para despachar ao método correto. `ResetStockAsync` agora zera `version=0`. docs/07-concorrencia-sagas.md atualizado com implementacao real do modo otimista e logs esperados.
+- **OpenTelemetry 1.15.0 + .NET 10:** OTel 1.15.0 depende de Microsoft.Extensions 10.0.0 (estavel). Versoes preview causam NU1605
+- **SQS trace propagation manual:** AWSSDK.SQS nao tem instrumentacao OTel nativa. Necessario inject/extract manual de traceparent/tracestate via MessageAttributes
+- **Task.WhenAll no SQS worker:** Para expor race conditions, o worker precisa processar mensagens do mesmo batch em paralelo
+- **Delay artificial como janela TOCTOU:** Task.Delay(150ms) entre SELECT e UPDATE (modo sem lock) garante que multiplas transacoes paralelas vejam o mesmo valor
+- **inventory_reservations como ponte de compensacao:** Armazenar reservation_id permite que compensacao restaure exatamente o estoque correto
 
 ## Deferred Ideas
 
