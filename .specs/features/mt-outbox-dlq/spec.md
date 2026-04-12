@@ -1,7 +1,7 @@
 # Feature: mt-outbox-dlq
 
 **Milestone:** M10 - Migração MassTransit
-**Status:** PLANNED
+**Status:** IMPLEMENTING
 
 ## Objetivo
 

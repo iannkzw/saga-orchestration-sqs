@@ -2,7 +2,7 @@
 
 > **Plano de longa memoria.** Este documento e a fonte de verdade para retomar o trabalho do M10 entre sessoes. Cada fase tem checklist, criterios de aceite, code review e plano de teste. Ao concluir um item, marcar `[x]` e atualizar `STATE.md`.
 >
-> **Ultima atualizacao:** 2026-04-11
+> **Ultima atualizacao:** 2026-04-12
 > **Autor da analise:** claude (sessao de planejamento)
 
 ---
@@ -129,14 +129,14 @@ Startup aplica migration limpa em DB vazio + happy path passa.
 **Objetivo:** resolver o dual-write entre state machine e publish. Toda mensagem sai na mesma transacao que o saga state.
 
 ### Checklist
-- [ ] Adicionar pacote `MassTransit.EntityFrameworkCore` ao `OrderService.csproj` (se ja nao estiver).
-- [ ] No `OrderDbContext.OnModelCreating`:
+- [x] Adicionar pacote `MassTransit.EntityFrameworkCore` ao `OrderService.csproj` (se ja nao estiver).
+- [x] No `OrderDbContext.OnModelCreating`:
   ```csharp
   modelBuilder.AddInboxStateEntity();
   modelBuilder.AddOutboxMessageEntity();
   modelBuilder.AddOutboxStateEntity();
   ```
-- [ ] No `Program.cs` do OrderService, dentro do `AddMassTransit`:
+- [x] No `Program.cs` do OrderService, dentro do `AddMassTransit`:
   ```csharp
   cfg.AddEntityFrameworkOutbox<OrderDbContext>(o =>
   {
@@ -146,11 +146,11 @@ Startup aplica migration limpa em DB vazio + happy path passa.
       o.DuplicateDetectionWindow = TimeSpan.FromMinutes(30);
   });
   ```
-- [ ] Na `OrderStateMachineDefinition`, remover `UseInMemoryOutbox(context)` — o EF outbox cobre isso.
-- [ ] Gerar migration: `dotnet ef migrations add AddMassTransitOutbox --project src/OrderService`.
-- [ ] Validar DDL gerado (tabelas `outbox_message`, `outbox_state`, `inbox_state`).
-- [ ] Remover endpoints `GET /dlq` e `POST /dlq/redrive` de qualquer lugar onde ainda existam (devem ter saido na Fase 1).
-- [ ] Adicionar retry policy na configuracao SQS (ex.: `UseMessageRetry(r => r.Intervals(1, 5, 10, 30))`).
+- [x] Na `OrderStateMachineDefinition`, remover `UseInMemoryOutbox(context)` — o EF outbox cobre isso.
+- [x] Gerar migration: `dotnet ef migrations add AddMassTransitOutbox --project src/OrderService`.
+- [x] Validar DDL gerado (tabelas `outbox_message`, `outbox_state`, `inbox_state`).
+- [x] Remover endpoints `GET /dlq` e `POST /dlq/redrive` de qualquer lugar onde ainda existam (devem ter saido na Fase 1).
+- [x] Adicionar retry policy na configuracao SQS (ex.: `UseMessageRetry(r => r.Intervals(1, 5, 10, 30))`).
 
 ### Code review
 - `grep UseInMemoryOutbox` retorna 0 matches.

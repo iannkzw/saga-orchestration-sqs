@@ -1,4 +1,5 @@
 using MassTransit;
+using OrderService.Data;
 using OrderService.Models;
 
 namespace OrderService.StateMachine;
@@ -16,6 +17,6 @@ public class OrderStateMachineDefinition : SagaDefinition<OrderSagaInstance>
         IRegistrationContext context)
     {
         sagaConfigurator.UseMessageRetry(r => r.Intervals(500, 1000, 2000));
-        sagaConfigurator.UseInMemoryOutbox(context);
+        endpointConfigurator.UseEntityFrameworkOutbox<OrderDbContext>(context);
     }
 }

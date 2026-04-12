@@ -29,6 +29,14 @@ builder.Services.AddMassTransit(cfg =>
                options.UseNpgsql(connectionString));
        });
 
+    cfg.AddEntityFrameworkOutbox<OrderDbContext>(o =>
+    {
+        o.UsePostgres();
+        o.UseBusOutbox();
+        o.QueryDelay = TimeSpan.FromSeconds(1);
+        o.DuplicateDetectionWindow = TimeSpan.FromMinutes(30);
+    });
+
     cfg.UsingAmazonSqs((context, sqsCfg) =>
     {
         sqsCfg.ConfigureSqsHost(builder.Configuration);
