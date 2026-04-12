@@ -91,7 +91,7 @@
 - Configurar retry/circuit breaker policies no MassTransit
 - Remover endpoints GET /dlq e POST /dlq/redrive (~90 linhas)
 
-**mt-db-migration** - PLANNED
+**mt-db-migration** - DONE
 
 - Unificar OrderDbContext + SagaDbContext em um unico DbContext no OrderService (Orders + SagaState + Outbox)
 - Criar EF migration para novo schema: OrderSagaState com propriedades tipadas + RowVersion + tabelas Outbox

@@ -39,15 +39,10 @@ builder.Services.AddMassTransit(cfg =>
 
 var app = builder.Build();
 
-// Cria tabelas de forma idempotente — IRelationalDatabaseCreator.CreateTablesAsync
-// cria apenas as tabelas sem verificar o banco (evita conflito com outros serviços)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-    var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)db).Instance;
-    var creator = (Microsoft.EntityFrameworkCore.Storage.IRelationalDatabaseCreator)
-        serviceProvider.GetRequiredService<Microsoft.EntityFrameworkCore.Storage.IDatabaseCreator>();
-    try { await creator.CreateTablesAsync(); } catch { /* tabelas já existem */ }
+    await db.Database.MigrateAsync();
 }
 
 app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
