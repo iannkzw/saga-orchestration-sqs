@@ -79,7 +79,13 @@ public sealed class IdempotencyTests
         var successSaga = results2[0];
         var failSaga = results2[1];
 
-        Assert.Equal("Completed", successSaga.State);
-        Assert.Equal("Failed", failSaga.State);
+        // Estado terminal da state machine é sempre "Final"; Order.Status distingue sucesso de falha
+        Assert.Equal("Final", successSaga.State);
+        Assert.Equal("Final", failSaga.State);
+
+        var successOrder = await _saga.WaitForOrderStatusAsync(successSaga.OrderId, "Completed");
+        var failOrder = await _saga.WaitForOrderStatusAsync(failSaga.OrderId, "Failed");
+        Assert.Equal("Completed", successOrder.Status);
+        Assert.Equal("Failed", failOrder.Status);
     }
 }

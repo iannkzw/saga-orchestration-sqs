@@ -47,14 +47,17 @@ public sealed class ConcurrencyTests(ITestOutputHelper output)
 
         var sagas = await Task.WhenAll(sagaTasks);
 
-        // Assert
-        var completed = sagas.Count(s => s.State == "Completed");
-        var failed = sagas.Count(s => s.State == "Failed");
+        // Estado terminal da state machine é sempre "Final"; Order.Status distingue sucesso de falha
+        var orderTasks2 = orders.Select(o => _saga.GetOrderAsync(o.OrderId)).ToList();
+        var orderResults = await Task.WhenAll(orderTasks2);
+
+        var completed = orderResults.Count(o => o.Status == "Completed");
+        var failed = orderResults.Count(o => o.Status == "Failed");
 
         output.WriteLine($"Completed: {completed}, Failed: {failed}");
-        foreach (var saga in sagas)
+        foreach (var (saga, order) in sagas.Zip(orderResults))
         {
-            output.WriteLine($"  Saga {saga.SagaId}: {saga.State}");
+            output.WriteLine($"  Saga {saga.SagaId}: state={saga.State} order.status={order.Status}");
         }
 
         Assert.Equal(InitialStock, completed);
@@ -100,8 +103,11 @@ public sealed class ConcurrencyTests(ITestOutputHelper output)
 
         var sagas = await Task.WhenAll(sagaTasks);
 
-        var completed = sagas.Count(s => s.State == "Completed");
-        var failed = sagas.Count(s => s.State == "Failed");
+        // Estado terminal da state machine é sempre "Final"; Order.Status distingue sucesso de falha
+        var orderResults2 = await Task.WhenAll(orders.Select(o => _saga.GetOrderAsync(o.OrderId)));
+
+        var completed = orderResults2.Count(o => o.Status == "Completed");
+        var failed = orderResults2.Count(o => o.Status == "Failed");
         var stock = await _inventory.GetStockAsync(ConcurrentProduct);
 
         // Registrar resultado observado
