@@ -31,7 +31,7 @@ cenario_fail() { error "$*"; CENARIOS_FAIL=$((CENARIOS_FAIL + 1)); }
 # Valida que a saga atingiu o estado "Final" (estado terminal do MassTransit).
 assert_saga_terminal() {
   local saga_id="$1" elapsed="$2" actual
-  actual=$(curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
+  actual=$(curl -sf "$ORDER_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
   if [[ "$actual" == "Final" ]]; then
     cenario_ok "Saga atingiu estado Final em ${elapsed}s"
   else

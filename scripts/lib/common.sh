@@ -7,8 +7,6 @@
 
 ORDER_URL="${ORDER_URL:-http://localhost:5001}"
 INVENTORY_URL="${INVENTORY_URL:-http://localhost:5004}"
-# ORCHESTRATOR_URL aponta para o OrderService (saga-orchestrator foi removido)
-ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:5001}"
 PRODUCT_ID="${PRODUCT_ID:-PROD-001}"
 
 # --- Cores ---
@@ -51,7 +49,7 @@ poll_saga() {
   local state
 
   while [[ $elapsed -lt $timeout ]]; do
-    state=$(curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
+    state=$(curl -sf "$ORDER_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
     if [[ "$state" == "Final" ]]; then
       echo "$state"
       return 0

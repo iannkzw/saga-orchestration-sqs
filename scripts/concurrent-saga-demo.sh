@@ -4,7 +4,7 @@
 # Demonstracao de concorrencia entre sagas disputando o mesmo produto.
 #
 # Cenario: estoque inicial = 2 unidades, 5 pedidos simultaneos
-# Resultado esperado COM lock:  2 Completed + 3 Failed (compensacao)
+# Resultado esperado COM concorrencia otimista: 2 Completed + 3 Failed (compensacao)
 # Resultado esperado SEM lock:  imprevisivel (overbooking possivel)
 #
 # Uso:
@@ -42,7 +42,7 @@ done
 if [[ "$NO_LOCK" == true ]]; then
   MODO_LOCK="SEM LOCK (race condition)"
 else
-  MODO_LOCK="COM LOCK (FOR UPDATE)"
+  MODO_LOCK="COM CONCORRENCIA OTIMISTA (xmin + retry)"
 fi
 
 # --- Verificar dependencias ---
@@ -78,10 +78,10 @@ if [[ "$NO_LOCK" == true ]]; then
     exit 1
   fi
   warn "Modo SEM LOCK confirmado no container."
-  warn "Com Task.WhenAll paralelo e sem FOR UPDATE, multiplas transacoes podem"
+  warn "Com Task.WhenAll paralelo e sem lock, multiplas transacoes podem"
   warn "ler o mesmo estoque antes de qualquer UPDATE — causando overbooking."
 else
-  log "Modo COM LOCK: SELECT FOR UPDATE garante serializacao correta."
+  log "Modo COM CONCORRENCIA OTIMISTA: xmin (RowVersion PostgreSQL) + retry absorve conflitos."
 fi
 
 # --- Resetar estoque (uma unica vez) ---
@@ -161,7 +161,7 @@ while true; do
     [[ -z "$saga_id" ]] && continue
     current="${SAGA_STATES[$saga_id]:-}"
     if [[ "$current" != "Final" ]]; then
-      STATE=$(curl -sf "$ORCHESTRATOR_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
+      STATE=$(curl -sf "$ORDER_URL/sagas/$saga_id" 2>/dev/null | jq -r '.state // "Unknown"')
       SAGA_STATES["$saga_id"]="$STATE"
       if [[ "$STATE" != "Final" ]]; then
         PENDING=$((PENDING + 1))
@@ -242,7 +242,7 @@ if [[ "$NO_LOCK" == true ]]; then
 else
   if [[ $COUNT_COMPLETED -eq $ESTOQUE_INICIAL && $COUNT_FAILED -eq $((NUM_PEDIDOS - ESTOQUE_INICIAL)) ]]; then
     success "Resultado CORRETO: $COUNT_COMPLETED pedidos aprovados (= estoque disponivel)"
-    success "FOR UPDATE serializou o acesso — sem overbooking!"
+    success "Concorrencia otimista (xmin + retry) serializou o acesso — sem overbooking!"
   elif [[ $COUNT_COMPLETED -lt $ESTOQUE_INICIAL ]]; then
     warn "Menos pedidos completados que o esperado (possivel timeout ou servico lento)"
   fi

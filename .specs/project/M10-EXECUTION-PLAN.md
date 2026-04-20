@@ -337,12 +337,14 @@ Pequena fase de finalizacao: garantir que os 4 Program.cs estao no estado final 
 
 ---
 
-## Fase 10 — mt-demo-scripts
+## Fase 10 — mt-demo-scripts ✓ DONE
+
+**Status:** CONCLUIDA em 2026-04-20. Ver decisao em STATE.md.
 
 ### Checklist
-- [ ] `scripts/lib/common.sh`: URLs apontam para 4 servicos, sem `saga-orchestrator`.
-- [ ] `scripts/happy-path-demo.sh`: 4 cenarios continuam reproduziveis.
-- [ ] `scripts/concurrent-saga-demo.sh`: idem.
+- [x] `scripts/lib/common.sh`: URLs apontam para 4 servicos, sem `saga-orchestrator`.
+- [x] `scripts/happy-path-demo.sh`: 4 cenarios continuam reproduziveis.
+- [x] `scripts/concurrent-saga-demo.sh`: idem.
 
 ### Teste manual
 - Rodar os 2 scripts em ambiente limpo.
