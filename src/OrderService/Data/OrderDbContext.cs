@@ -44,6 +44,12 @@ public class OrderDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
         });
 
+        modelBuilder.Entity<OrderSagaInstance>()
+            .Property(e => e.xmin)
+            .HasColumnName("xmin")
+            .IsRowVersion();
+
+
         modelBuilder.AddInboxStateEntity();
         modelBuilder.AddOutboxMessageEntity();
         modelBuilder.AddOutboxStateEntity();

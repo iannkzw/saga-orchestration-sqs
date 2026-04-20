@@ -16,4 +16,5 @@ public class OrderSagaInstance : SagaStateMachineInstance
     public string? FailureReason { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public uint xmin { get; set; }
 }

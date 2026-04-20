@@ -2,7 +2,7 @@
 
 > **Plano de longa memoria.** Este documento e a fonte de verdade para retomar o trabalho do M10 entre sessoes. Cada fase tem checklist, criterios de aceite, code review e plano de teste. Ao concluir um item, marcar `[x]` e atualizar `STATE.md`.
 >
-> **Ultima atualizacao:** 2026-04-12
+> **Ultima atualizacao:** 2026-04-20
 > **Autor da analise:** claude (sessao de planejamento)
 
 ---
@@ -124,7 +124,9 @@ Startup aplica migration limpa em DB vazio + happy path passa.
 
 ---
 
-## Fase 3 — mt-outbox-dlq (EF Outbox)
+## Fase 3 — mt-outbox-dlq (EF Outbox) ✓ DONE
+
+**Status:** CONCLUIDA em 2026-04-12. Ver decisao em STATE.md.
 
 **Objetivo:** resolver o dual-write entre state machine e publish. Toda mensagem sai na mesma transacao que o saga state.
 
@@ -178,25 +180,21 @@ Happy path completo + teste de resiliencia + 0 uso de InMemoryOutbox.
 
 ---
 
-## Fase 4 — mt-concurrency (RowVersion + Optimistic)
+## Fase 4 — mt-concurrency (RowVersion + Optimistic) ✓ DONE
+
+**Status:** CONCLUIDA em 2026-04-20. Ver decisao em STATE.md.
 
 ### Checklist
-- [ ] Adicionar `public byte[] RowVersion { get; set; } = null!;` em `OrderSagaInstance`.
-- [ ] Em `OrderDbContext.OnModelCreating`: `modelBuilder.Entity<OrderSagaInstance>().Property(x => x.RowVersion).IsRowVersion();` (ou `IsConcurrencyToken()` em Postgres — validar qual e o suporte no provider).
-- [ ] Gerar migration `AddSagaRowVersion`.
-- [ ] Trocar `ConcurrencyMode.Pessimistic` por `ConcurrencyMode.Optimistic` no registro do saga repository.
-- [ ] Adicionar retry do MassTransit para `DbUpdateConcurrencyException`:
-  ```csharp
-  cfg.UseMessageRetry(r =>
-      r.Handle<DbUpdateConcurrencyException>().Intervals(50, 100, 250, 500));
-  ```
-  (no endpoint da state machine ou globalmente — avaliar).
-- [ ] Remover TODO de divida tecnica em Worker.cs (se ja nao saiu na Fase 1 junto com o Worker).
+- [x] Adicionar `public uint xmin { get; set; }` em `OrderSagaInstance` (coluna de sistema PostgreSQL — nao `byte[]`).
+- [x] Em `OrderDbContext.OnModelCreating`: `modelBuilder.Entity<OrderSagaInstance>().Property(e => e.xmin).HasColumnName("xmin").IsRowVersion()` — Npgsql mapeia para `xid`.
+- [x] Gerar migration `AddXminConcurrency` — gerada com `type: "xid"` e `rowVersion: true`.
+- [x] Trocar `ConcurrencyMode.Pessimistic` por `ConcurrencyMode.Optimistic` no registro do saga repository.
+- [x] Retry ajustado para 3 tentativas (100ms, 200ms, 500ms) — backoff curto para conflitos otimistas.
 
 ### Code review
 - `grep ConcurrencyMode.Pessimistic` = 0.
-- `grep IsRowVersion\|IsConcurrencyToken` > 0.
-- Migration `AddSagaRowVersion` existe.
+- `grep IsRowVersion` > 0 em OrderDbContext.
+- Migration `AddXminConcurrency` existe com `type: "xid"`.
 
 ### Teste manual
 - Forcar conflito: disparar 2 eventos concorrentes para a mesma saga (ex.: reenviar um PaymentCompleted por retry manual no LocalStack) — state machine nao corrompe estado; retry absorve.

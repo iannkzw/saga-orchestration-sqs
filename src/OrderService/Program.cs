@@ -24,7 +24,7 @@ builder.Services.AddMassTransit(cfg =>
     cfg.AddSagaStateMachine<OrderStateMachine, OrderSagaInstance, OrderStateMachineDefinition>()
        .EntityFrameworkRepository(r =>
        {
-           r.ConcurrencyMode = ConcurrencyMode.Pessimistic;
+           r.ConcurrencyMode = ConcurrencyMode.Optimistic;
            r.UsePostgres();
            r.AddDbContext<DbContext, OrderDbContext>((_, options) =>
                options.UseNpgsql(connectionString));
@@ -41,7 +41,10 @@ builder.Services.AddMassTransit(cfg =>
     cfg.UsingAmazonSqs((context, sqsCfg) =>
     {
         sqsCfg.ConfigureSqsHost(builder.Configuration);
-        sqsCfg.UseMessageRetry(r => r.Intervals(500, 1000, 2000, 5000));
+        sqsCfg.UseMessageRetry(r => r.Intervals(
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(200),
+            TimeSpan.FromMilliseconds(500)));
         sqsCfg.ConfigureEndpoints(context);
     });
 });
