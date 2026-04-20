@@ -145,6 +145,39 @@ public sealed class SagaClient : IDisposable
             $"Último status: {last?.Status ?? "desconhecido"}");
     }
 
+    /// <summary>
+    /// POST /debug/metrics/optimistic-retries/reset — zera o contador de conflitos xmin.
+    /// Requer ENABLE_DEBUG_ENDPOINTS=true no OrderService.
+    /// </summary>
+    public async Task ResetOptimisticRetryCounterAsync()
+    {
+        var response = await _orderClient.PostAsync("/debug/metrics/optimistic-retries/reset", content: null);
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// GET /debug/metrics/optimistic-retries → retorna contagem acumulada de
+    /// DbUpdateConcurrencyException observadas nos logs (proxy para retries otimistas).
+    /// </summary>
+    public async Task<long> GetOptimisticRetryCountAsync()
+    {
+        var response = await _orderClient.GetAsync("/debug/metrics/optimistic-retries");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        return body.GetProperty("count").GetInt64();
+    }
+
+    /// <summary>
+    /// POST /debug/republish-order-placed/{sagaId}?count=N — publica N copias de OrderPlaced
+    /// com o mesmo CorrelationId em paralelo, forcando contencao real na linha da saga.
+    /// </summary>
+    public async Task RepublishOrderPlacedAsync(Guid sagaId, int count)
+    {
+        var response = await _orderClient.PostAsync(
+            $"/debug/republish-order-placed/{sagaId}?count={count}", content: null);
+        response.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         _orderClient.Dispose();

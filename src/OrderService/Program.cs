@@ -2,6 +2,7 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Api;
 using OrderService.Data;
+using OrderService.Diagnostics;
 using OrderService.Models;
 using OrderService.StateMachine;
 using Shared.Extensions;
@@ -13,6 +14,11 @@ var sqsServiceUrl = builder.Configuration["AWS_SERVICE_URL"] ?? "http://localhos
 builder.Services.AddSagaConnectivity(sqsServiceUrl);
 builder.Services.AddSagaTracing("order-service");
 builder.Services.AddSagaLogging("order-service");
+
+var debugEndpointsEnabled = builder.Configuration.GetValue<bool>("ENABLE_DEBUG_ENDPOINTS");
+var optimisticRetryCounter = new OptimisticRetryCounter();
+builder.Services.AddSingleton(optimisticRetryCounter);
+builder.Logging.AddProvider(new ConcurrencyLoggerProvider(optimisticRetryCounter));
 
 var connectionString = builder.Configuration.GetConnectionString("SagaDb")
     ?? "Host=localhost;Port=5432;Database=saga_db;Username=saga;Password=saga_pass";
@@ -70,5 +76,8 @@ app.MapGet("/health", (StartupConnectivityCheck checks) => Results.Ok(new
 
 app.MapOrderEndpoints();
 app.MapSagaEndpoints();
+
+if (debugEndpointsEnabled)
+    app.MapDebugEndpoints();
 
 app.Run();

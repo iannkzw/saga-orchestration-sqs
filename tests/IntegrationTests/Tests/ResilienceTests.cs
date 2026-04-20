@@ -58,59 +58,56 @@ public sealed class ResilienceTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// T9 — Concorrência otimista: 10 sagas simultâneas competindo pelo mesmo produto
-    /// com estoque=10. Valida que nenhuma saga corrompe estado de outra (0 overbooking)
-    /// usando ConcurrencyMode.Optimistic + xmin row version no OrderService.
+    /// T9 — Concorrência otimista real: inunda a MESMA saga com N eventos OrderPlaced
+    /// concorrentes (mesmo CorrelationId) para forçar contenção na linha do
+    /// OrderSagaInstance. Valida que:
+    ///   1. A saga converge para Final (retry otimista absorve os conflitos).
+    ///   2. O contador de DbUpdateConcurrencyException no OrderService é > 0.
     ///
-    /// Todas as 10 devem completar (estoque suficiente), demonstrando que o retry otimista
-    /// absorve conflitos de xmin sem falhas espúrias.
+    /// Sem ConcurrencyMode.Optimistic + xmin, o assert de retries > 0 quebra —
+    /// o teste é falseável quanto ao mecanismo, não apenas ao resultado.
     /// </summary>
     [Fact]
-    public async Task OptimisticConcurrency_TenSimultaneousSagas_NoStateCorruption()
+    public async Task OptimisticConcurrency_ConcurrentEventsOnSameSaga_RetryCounterPositive()
     {
         const string product = "PROD-OPTIMISTIC";
-        const int totalOrders = 10;
-        const int initialStock = 10;
+        const int floodCount = 20;
 
-        // Arrange
-        await _inventory.ResetStockAsync(product, initialStock);
+        // Arrange — estoque sobra; o foco é contenção na linha da saga, não no inventory
+        await _inventory.ResetStockAsync(product, 100);
+        await _saga.ResetOptimisticRetryCounterAsync();
 
-        var request = new CreateOrderRequest(
+        var (orderId, sagaId) = await _saga.PostOrderAsync(new CreateOrderRequest(
             TotalAmount: 15.00m,
             Items: [new OrderItemRequest(product, 1, 15.00m)]
-        );
+        ));
 
-        // Act — disparar 10 pedidos em paralelo para forçar contenção otimista
-        var orderTasks = Enumerable.Range(0, totalOrders)
-            .Select(_ => _saga.PostOrderAsync(request))
-            .ToList();
+        output.WriteLine($"Saga inicial: sagaId={sagaId}, orderId={orderId}");
 
-        var orders = await Task.WhenAll(orderTasks);
+        // Act — publicar N copias adicionais de OrderPlaced com o MESMO CorrelationId
+        // em paralelo. Todas aterrissam na mesma linha do order_saga_instances,
+        // disputando xmin. O primeiro update vence; os demais recebem
+        // DbUpdateConcurrencyException e sao retried pelo UseMessageRetry.
+        await _saga.RepublishOrderPlacedAsync(sagaId, count: floodCount);
 
-        output.WriteLine($"Pedidos criados: {orders.Length}");
+        var saga = await _saga.WaitForTerminalStateAsync(sagaId, timeout: TimeSpan.FromSeconds(90));
+        output.WriteLine($"Estado terminal: {saga.State}");
 
-        // Aguardar todas as sagas com timeout generoso (contenção otimista causa retries)
-        var sagaTasks = orders
-            .Select(o => _saga.WaitForTerminalStateAsync(o.SagaId, timeout: TimeSpan.FromSeconds(90)))
-            .ToList();
+        Assert.Equal("Final", saga.State);
 
-        var sagas = await Task.WhenAll(sagaTasks);
+        // Assert crucial: houve de fato contenção otimista resolvida por retry.
+        // Sem xmin/Optimistic, esse contador permanece em 0 e o teste falha.
+        var retries = await _saga.GetOptimisticRetryCountAsync();
+        output.WriteLine($"Optimistic retries observados: {retries}");
 
-        var completed = sagas.Count(s => s.State is "Final" or "Completed");
-        var failed = sagas.Count(s => s.State == "Failed");
+        Assert.True(retries > 0,
+            $"Esperado retries > 0 (contenção xmin na mesma saga), observado {retries}. " +
+            "Isso indica que ConcurrencyMode.Optimistic + xmin não está ativo, " +
+            "ou a inundação não gerou concorrência real na linha da saga.");
 
-        output.WriteLine($"Completed: {completed} | Failed: {failed}");
-        foreach (var saga in sagas)
-            output.WriteLine($"  Saga {saga.SagaId}: {saga.State}");
-
-        // Com estoque=10 e 10 pedidos, todas devem completar
-        Assert.Equal(totalOrders, completed);
-        Assert.Equal(0, failed);
-
-        // Estoque final = 0 (sem overbooking e sem underbooking)
-        var stock = await _inventory.GetStockAsync(product);
-        output.WriteLine($"Estoque final: {stock.Quantity}");
-        Assert.Equal(0, stock.Quantity);
+        // Sanidade: order finalizado corretamente apesar da inundação
+        var order = await _saga.GetOrderAsync(orderId);
+        Assert.Equal("Completed", order.Status);
     }
 
     /// <summary>

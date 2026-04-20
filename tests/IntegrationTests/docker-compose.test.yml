@@ -9,6 +9,8 @@ services:
   order-service:
     ports:
       - "5001:8080"
+    environment:
+      - ENABLE_DEBUG_ENDPOINTS=true
     restart: unless-stopped
 
   payment-service:
