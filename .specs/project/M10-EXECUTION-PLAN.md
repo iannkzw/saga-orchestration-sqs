@@ -235,17 +235,19 @@ Arquivos deletados + testes verdes + replay manual valida comportamento.
 
 ---
 
-## Fase 6 — mt-cleanup (codigo morto residual)
+## Fase 6 — mt-cleanup (codigo morto residual) ✓ DONE
+
+**Status:** CONCLUIDA em 2026-04-20. Ver decisao em STATE.md.
 
 ### Checklist
-- [ ] Remover `Shared/Configuration/SqsConfig.cs`.
-- [ ] Remover `Shared/Telemetry/SqsTracePropagation.cs`.
-- [ ] Remover `Shared/Contracts/Notifications/SagaTerminatedNotification.cs` + fila `order-status-updates` em `init-sqs.sh`.
-- [ ] Remover `Shared/Contracts/Replies/*` (PaymentReply, InventoryReply, ShippingReply, ReleaseInventoryReply, RefundPaymentReply).
-- [ ] Remover `Shared/Contracts/Commands/BaseCommand.cs` se nao for mais usado.
-- [ ] Remover `ServiceCollectionExtensions` de SQS manual em `Shared/Extensions/` (preservar somente `MassTransitSqsExtensions.cs`).
-- [ ] Grep `CommandType` (message attribute de despacho manual) = 0 matches.
-- [ ] Limpar usings orfaos na solution: `dotnet format`.
+- [x] Remover `Shared/Configuration/SqsConfig.cs`.
+- [x] Remover `Shared/Telemetry/SqsTracePropagation.cs`.
+- [x] Remover `Shared/Contracts/Notifications/SagaTerminatedNotification.cs` + simplificar `init-sqs.sh` para no-op.
+- [x] Remover `Shared/Contracts/Replies/*` (PaymentReply, InventoryReply, ShippingReply, ReleaseInventoryReply, RefundPaymentReply, CancelShippingReply, BaseReply).
+- [x] `Shared/Contracts/Commands/BaseCommand.cs` — MANTIDO: 9 commands ativos herdam SagaId e Timestamp.
+- [x] `ServiceCollectionExtensions.cs` — MANTIDO: AddSagaConnectivity registra IAmazonSQS para SqsConnectivityCheck no /health; AddSagaTracing/AddSagaLogging sao validos. Sem codigo de despacho manual.
+- [x] Grep `CommandType` (message attribute de despacho manual) = 0 matches (ocorrencias em SagaActivitySource sao parametros de metodo, nao atributos de despacho).
+- [x] `dotnet build` — 0 erros, 0 warnings de codigo (apenas NU1903 pre-existente).
 
 ### Code review
 - Nenhum arquivo referencia classes removidas.
