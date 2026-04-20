@@ -38,9 +38,6 @@ public static class OrderEndpoints
             UpdatedAt = DateTime.UtcNow
         };
 
-        db.Orders.Add(order);
-        await db.SaveChangesAsync();
-
         var customerId = requestBody.TryGetProperty("customerId", out var cid)
             ? cid.GetString() ?? string.Empty
             : string.Empty;
@@ -55,20 +52,38 @@ public static class OrderEndpoints
         var simulateFailure = context.Request.Headers["X-Simulate-Failure"].FirstOrDefault();
 
         var correlationId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        order.SagaId = correlationId;
+        order.Status = OrderStatus.Processing;
+        order.UpdatedAt = now;
+
+        var sagaInstance = new OrderSagaInstance
+        {
+            CorrelationId = correlationId,
+            CurrentState = "Initial",
+            OrderId = order.Id,
+            CustomerId = customerId,
+            TotalAmount = totalAmount,
+            ItemsJson = JsonSerializer.Serialize(orderItems),
+            SimulateFailure = simulateFailure,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        db.Orders.Add(order);
+        db.SagaInstances.Add(sagaInstance);
+        await db.SaveChangesAsync();
+
         await publishEndpoint.Publish(new OrderPlaced(
             correlationId,
             order.Id,
             customerId,
             totalAmount,
             orderItems,
-            DateTime.UtcNow,
+            now,
             simulateFailure
         ));
-
-        order.SagaId = correlationId;
-        order.Status = OrderStatus.Processing;
-        order.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
 
         return Results.Created($"/orders/{order.Id}", new
         {
