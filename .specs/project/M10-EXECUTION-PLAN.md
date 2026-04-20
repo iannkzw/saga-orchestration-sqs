@@ -359,11 +359,11 @@ Scripts passam sem intervencao manual.
 Esta fase e grande mas pode ser paralelizada em pull requests menores.
 
 ### Checklist — README.md
-- [ ] Diagrama atualizado (4 servicos, OrderService como orquestrador).
-- [ ] Tabela de portas (4 servicos).
-- [ ] Exemplos curl no OrderService.
-- [ ] Pre-requisitos: pacotes MassTransit.
-- [ ] Sumario dos docs didaticos atualizado.
+- [x] Diagrama atualizado (4 servicos, OrderService como orquestrador).
+- [x] Tabela de portas (4 servicos).
+- [x] Exemplos curl no OrderService.
+- [x] Pre-requisitos: pacotes MassTransit.
+- [x] Sumario dos docs didaticos atualizado.
 
 ### Checklist — docs/01-08 (reescrita)
 - [ ] `01-fundamentos-sagas.md`: adicionar secao sobre fusao Order+Orchestrator.
