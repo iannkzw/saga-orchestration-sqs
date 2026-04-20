@@ -25,6 +25,7 @@ builder.Services.AddMassTransit(cfg =>
        .EntityFrameworkRepository(r =>
        {
            r.ConcurrencyMode = ConcurrencyMode.Pessimistic;
+           r.UsePostgres();
            r.AddDbContext<DbContext, OrderDbContext>((_, options) =>
                options.UseNpgsql(connectionString));
        });

@@ -1,6 +1,7 @@
 namespace Shared.Contracts.Commands;
 
-public record CancelInventory(
-    Guid CorrelationId,
-    string ReservationId
-);
+public record CancelInventory : BaseCommand
+{
+    public Guid CorrelationId { get; init; }
+    public string ReservationId { get; init; } = string.Empty;
+}

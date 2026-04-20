@@ -27,6 +27,11 @@ public static class MassTransitSqsExtensions
                 ServiceURL = serviceUrl,
                 AuthenticationRegion = region,
             });
+            h.Config(new Amazon.SimpleNotificationService.AmazonSimpleNotificationServiceConfig
+            {
+                ServiceURL = serviceUrl,
+                AuthenticationRegion = region,
+            });
         });
     }
 }

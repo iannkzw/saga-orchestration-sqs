@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Data;
@@ -44,6 +45,7 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 {
                     ctx.Saga.OrderId = ctx.Message.OrderId;
                     ctx.Saga.TotalAmount = ctx.Message.TotalAmount;
+                    ctx.Saga.ItemsJson = JsonSerializer.Serialize(ctx.Message.Items);
                     ctx.Saga.CreatedAt = DateTime.UtcNow;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
@@ -68,7 +70,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .PublishAsync(ctx => ctx.Init<ReserveInventory>(new ReserveInventory
                 {
                     CorrelationId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId
+                    OrderId = ctx.Saga.OrderId,
+                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? []
                 })),
 
             When(PaymentFailed)
@@ -92,7 +95,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .PublishAsync(ctx => ctx.Init<ScheduleShipping>(new ScheduleShipping
                 {
                     CorrelationId = ctx.Saga.CorrelationId,
-                    OrderId = ctx.Saga.OrderId
+                    OrderId = ctx.Saga.OrderId,
+                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? []
                 })),
 
             When(InventoryFailed)
@@ -103,10 +107,11 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
                 .TransitionTo(Compensating)
-                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment(
-                    ctx.Saga.CorrelationId,
-                    ctx.Saga.PaymentId ?? string.Empty
-                )))
+                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment
+                {
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    PaymentId = ctx.Saga.PaymentId ?? string.Empty
+                }))
         );
 
         During(ShippingScheduling,
@@ -126,10 +131,11 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
                 .TransitionTo(Compensating)
-                .PublishAsync(ctx => ctx.Init<CancelInventory>(new CancelInventory(
-                    ctx.Saga.CorrelationId,
-                    ctx.Saga.ReservationId ?? string.Empty
-                )))
+                .PublishAsync(ctx => ctx.Init<CancelInventory>(new CancelInventory
+                {
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    ReservationId = ctx.Saga.ReservationId ?? string.Empty
+                }))
         );
 
         During(Compensating,
@@ -139,10 +145,11 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     ctx.Saga.CompensationStep = "CancelPayment";
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
-                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment(
-                    ctx.Saga.CorrelationId,
-                    ctx.Saga.PaymentId ?? string.Empty
-                ))),
+                .PublishAsync(ctx => ctx.Init<CancelPayment>(new CancelPayment
+                {
+                    CorrelationId = ctx.Saga.CorrelationId,
+                    PaymentId = ctx.Saga.PaymentId ?? string.Empty
+                })),
 
             When(PaymentCancelled)
                 .ThenAsync(async ctx =>

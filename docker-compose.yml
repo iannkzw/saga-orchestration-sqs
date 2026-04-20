@@ -42,12 +42,12 @@ services:
   # Infraestrutura
   # ---------------------------------------------------------------------------
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8.1
     container_name: saga-localstack
     ports:
       - "${LOCALSTACK_PORT}:4566"
     environment:
-      - SERVICES=sqs
+      - SERVICES=sqs,sns
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}

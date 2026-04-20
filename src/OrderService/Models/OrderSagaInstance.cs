@@ -9,6 +9,7 @@ public class OrderSagaInstance : SagaStateMachineInstance
     public Guid OrderId { get; set; }
     public string CustomerId { get; set; } = string.Empty;
     public decimal TotalAmount { get; set; }
+    public string ItemsJson { get; set; } = "[]";
     public string? PaymentId { get; set; }
     public string? ReservationId { get; set; }
     public string? CompensationStep { get; set; }
