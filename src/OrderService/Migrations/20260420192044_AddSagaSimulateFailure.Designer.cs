@@ -12,7 +12,7 @@ using OrderService.Data;
 namespace OrderService.Migrations
 {
     [DbContext(typeof(OrderDbContext))]
-    [Migration("20260420184622_AddSagaSimulateFailure")]
+    [Migration("20260420192044_AddSagaSimulateFailure")]
     partial class AddSagaSimulateFailure
     {
         /// <inheritdoc />
@@ -282,6 +282,9 @@ namespace OrderService.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("reservation_id");
+
+                    b.Property<string>("SimulateFailure")
+                        .HasColumnType("text");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("numeric")

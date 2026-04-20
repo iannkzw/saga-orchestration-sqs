@@ -280,6 +280,9 @@ namespace OrderService.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("reservation_id");
 
+                    b.Property<string>("SimulateFailure")
+                        .HasColumnType("text");
+
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("numeric")
                         .HasColumnName("total_amount");
