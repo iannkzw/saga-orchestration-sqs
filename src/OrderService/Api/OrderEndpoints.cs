@@ -73,7 +73,6 @@ public static class OrderEndpoints
 
         db.Orders.Add(order);
         db.SagaInstances.Add(sagaInstance);
-        await db.SaveChangesAsync();
 
         await publishEndpoint.Publish(new OrderPlaced(
             correlationId,
@@ -84,6 +83,8 @@ public static class OrderEndpoints
             now,
             simulateFailure
         ));
+
+        await db.SaveChangesAsync();
 
         return Results.Created($"/orders/{order.Id}", new
         {

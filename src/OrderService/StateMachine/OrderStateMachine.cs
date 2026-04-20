@@ -29,8 +29,6 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
     {
         InstanceState(x => x.CurrentState);
 
-        SetCompletedWhenFinalized();
-
         Event(() => OrderPlaced, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
         Event(() => PaymentCompleted, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
         Event(() => PaymentFailed, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
