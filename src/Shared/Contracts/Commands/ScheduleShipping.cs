@@ -8,4 +8,5 @@ public record ScheduleShipping : BaseCommand
     public Guid OrderId { get; init; }
     public IReadOnlyList<OrderItem> Items { get; init; } = [];
     public ShippingAddress? ShippingAddress { get; init; }
+    public string? SimulateFailure { get; init; }
 }

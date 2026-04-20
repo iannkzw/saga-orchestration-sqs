@@ -23,6 +23,18 @@ public class ScheduleShippingConsumer : IConsumer<ScheduleShipping>
 
         await Task.Delay(200, context.CancellationToken);
 
+        if (msg.SimulateFailure == "shipping")
+        {
+            _logger.LogWarning(
+                "[Shipping] Falha simulada via X-Simulate-Failure: CorrelationId={CorrelationId}",
+                msg.CorrelationId);
+
+            await context.Publish(new ShippingFailed(
+                msg.CorrelationId,
+                "Simulated shipping failure"));
+            return;
+        }
+
         if (msg.Items.Count == 0)
         {
             _logger.LogWarning(

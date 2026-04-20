@@ -6,4 +6,5 @@ public record ProcessPayment : BaseCommand
     public Guid OrderId { get; init; }
     public decimal Amount { get; init; }
     public string CustomerId { get; init; } = string.Empty;
+    public string? SimulateFailure { get; init; }
 }

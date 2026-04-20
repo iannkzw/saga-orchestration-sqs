@@ -23,6 +23,18 @@ public class ProcessPaymentConsumer : IConsumer<ProcessPayment>
 
         await Task.Delay(200, context.CancellationToken);
 
+        if (msg.SimulateFailure == "payment")
+        {
+            _logger.LogWarning(
+                "[Payment] Falha simulada via X-Simulate-Failure: CorrelationId={CorrelationId}",
+                msg.CorrelationId);
+
+            await context.Publish(new PaymentFailed(
+                msg.CorrelationId,
+                "Simulated payment failure"));
+            return;
+        }
+
         if (msg.Amount <= 0)
         {
             _logger.LogWarning(

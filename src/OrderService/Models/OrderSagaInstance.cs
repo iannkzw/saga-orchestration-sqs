@@ -14,6 +14,7 @@ public class OrderSagaInstance : SagaStateMachineInstance
     public string? ReservationId { get; set; }
     public string? CompensationStep { get; set; }
     public string? FailureReason { get; set; }
+    public string? SimulateFailure { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public uint xmin { get; set; }

@@ -6,5 +6,6 @@ public record OrderPlaced(
     string CustomerId,
     decimal TotalAmount,
     IReadOnlyList<OrderItem> Items,
-    DateTime PlacedAt
+    DateTime PlacedAt,
+    string? SimulateFailure = null
 );

@@ -29,6 +29,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
     {
         InstanceState(x => x.CurrentState);
 
+        SetCompletedWhenFinalized();
+
         Event(() => OrderPlaced, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
         Event(() => PaymentCompleted, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
         Event(() => PaymentFailed, e => e.CorrelateById(ctx => ctx.Message.CorrelationId));
@@ -44,8 +46,10 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 .Then(ctx =>
                 {
                     ctx.Saga.OrderId = ctx.Message.OrderId;
+                    ctx.Saga.CustomerId = ctx.Message.CustomerId;
                     ctx.Saga.TotalAmount = ctx.Message.TotalAmount;
                     ctx.Saga.ItemsJson = JsonSerializer.Serialize(ctx.Message.Items);
+                    ctx.Saga.SimulateFailure = ctx.Message.SimulateFailure;
                     ctx.Saga.CreatedAt = DateTime.UtcNow;
                     ctx.Saga.UpdatedAt = DateTime.UtcNow;
                 })
@@ -55,7 +59,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                     CorrelationId = ctx.Saga.CorrelationId,
                     OrderId = ctx.Saga.OrderId,
                     Amount = ctx.Message.TotalAmount,
-                    CustomerId = ctx.Message.CustomerId
+                    CustomerId = ctx.Message.CustomerId,
+                    SimulateFailure = ctx.Saga.SimulateFailure
                 }))
         );
 
@@ -71,7 +76,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 {
                     CorrelationId = ctx.Saga.CorrelationId,
                     OrderId = ctx.Saga.OrderId,
-                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? []
+                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? [],
+                    SimulateFailure = ctx.Saga.SimulateFailure
                 })),
 
             When(PaymentFailed)
@@ -96,7 +102,8 @@ public class OrderStateMachine : MassTransitStateMachine<OrderSagaInstance>
                 {
                     CorrelationId = ctx.Saga.CorrelationId,
                     OrderId = ctx.Saga.OrderId,
-                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? []
+                    Items = JsonSerializer.Deserialize<List<OrderItem>>(ctx.Saga.ItemsJson) ?? [],
+                    SimulateFailure = ctx.Saga.SimulateFailure
                 })),
 
             When(InventoryFailed)

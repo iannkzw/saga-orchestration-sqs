@@ -41,6 +41,18 @@ public class ReserveInventoryConsumer : IConsumer<ReserveInventory>
             "[Inventory] Reservando estoque CorrelationId={CorrelationId}, OrderId={OrderId}, Items={Items}, LockMode={LockMode}",
             msg.CorrelationId, msg.OrderId, msg.Items.Count, _lockingMode);
 
+        if (msg.SimulateFailure == "inventory")
+        {
+            _logger.LogWarning(
+                "[Inventory] Falha simulada via X-Simulate-Failure: CorrelationId={CorrelationId}",
+                msg.CorrelationId);
+
+            await context.Publish(new InventoryFailed(
+                msg.CorrelationId,
+                "Simulated inventory failure"));
+            return;
+        }
+
         var firstItem = msg.Items.FirstOrDefault();
         if (firstItem is null)
         {

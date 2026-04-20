@@ -52,6 +52,8 @@ public static class OrderEndpoints
             i.TryGetProperty("unitPrice", out var up) ? up.GetDecimal() : 0m
         )).ToList();
 
+        var simulateFailure = context.Request.Headers["X-Simulate-Failure"].FirstOrDefault();
+
         var correlationId = Guid.NewGuid();
         await publishEndpoint.Publish(new OrderPlaced(
             correlationId,
@@ -59,7 +61,8 @@ public static class OrderEndpoints
             customerId,
             totalAmount,
             orderItems,
-            DateTime.UtcNow
+            DateTime.UtcNow,
+            simulateFailure
         ));
 
         order.SagaId = correlationId;

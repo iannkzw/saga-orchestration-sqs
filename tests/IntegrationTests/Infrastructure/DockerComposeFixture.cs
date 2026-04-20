@@ -21,12 +21,15 @@ public sealed class DockerComposeFixture : IAsyncLifetime
         ("shipping-service",   "http://localhost:5005/health"),
     ];
 
-    // Filas SQS que devem existir antes dos serviços iniciarem.
-    // Com MassTransit as filas são criadas pelos consumers via ConfigureEndpoints;
-    // aqui aguardamos as filas legadas ainda criadas pelo init-sqs.sh.
+    // Filas SQS criadas pelo MassTransit via ConfigureEndpoints quando os consumers sobem.
+    // Nomes derivam dos EndpointName dos ConsumerDefinition (ver src/*/Consumers/*Definition.cs).
+    // Aguardamos antes de publicar o primeiro teste para evitar race na primeira mensagem.
     private static readonly string[] RequiredQueues =
     [
-        "order-commands", "payment-commands", "inventory-commands", "shipping-commands"
+        "order-saga",
+        "process-payment", "cancel-payment",
+        "reserve-inventory", "cancel-inventory",
+        "schedule-shipping"
     ];
 
     private const string LocalStackSqsUrl = "http://localhost:4566";
@@ -42,12 +45,11 @@ public sealed class DockerComposeFixture : IAsyncLifetime
         await RunDockerComposeAsync("build");
         await RunDockerComposeAsync("up -d");
 
-        // Aguarda as filas SQS serem criadas pelo init-sqs.sh (roda async após LocalStack healthy)
-        // Só depois disso os serviços conseguem resolver GetQueueUrlAsync sem crash
-        await WaitForSqsQueuesAsync(HealthTimeout);
-
-        // Aguarda os serviços HTTP ficarem healthy (podem reiniciar via on-failure enquanto filas não existiam)
+        // Aguarda os serviços HTTP ficarem healthy — consumers MassTransit criam as filas na inicialização
         await WaitForAllServicesAsync(HealthTimeout);
+
+        // Confirma que todas as filas MassTransit já existem antes do primeiro publish de teste
+        await WaitForSqsQueuesAsync(HealthTimeout);
 
         // Aguarda estabilização: health pode passar antes das tabelas estarem prontas
         await Task.Delay(TimeSpan.FromSeconds(5));
@@ -119,7 +121,7 @@ public sealed class DockerComposeFixture : IAsyncLifetime
         }
 
         throw new TimeoutException(
-            $"Filas SQS não foram criadas em {timeout.TotalSeconds}s. Verifique o init-sqs.sh do LocalStack.");
+            $"Filas MassTransit não foram criadas em {timeout.TotalSeconds}s. Verifique se os consumers subiram corretamente.");
     }
 
     private async Task WaitForAllServicesAsync(TimeSpan timeout)
