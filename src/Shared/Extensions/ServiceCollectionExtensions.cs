@@ -6,7 +6,6 @@ using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Shared.HealthChecks;
-using Shared.Idempotency;
 using Shared.Telemetry;
 
 namespace Shared.Extensions;
@@ -19,7 +18,6 @@ public static class ServiceCollectionExtensions
         {
             ServiceURL = sqsServiceUrl
         }));
-        services.AddSingleton<IdempotencyStore>();
         services.AddSingleton<SqsConnectivityCheck>();
         services.AddSingleton<PostgresConnectivityCheck>();
         services.AddSingleton<StartupConnectivityCheck>();

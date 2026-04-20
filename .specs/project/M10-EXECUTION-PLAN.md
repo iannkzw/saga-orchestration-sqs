@@ -208,14 +208,16 @@ Migration aplicada + cenario de concorrencia verde + retry visivel em logs sob c
 
 ---
 
-## Fase 5 — mt-idempotency (remover IdempotencyStore)
+## Fase 5 — mt-idempotency (remover IdempotencyStore) ✓ DONE
+
+**Status:** CONCLUIDA em 2026-04-20. Ver decisao em STATE.md.
 
 ### Checklist
-- [ ] Apagar `Shared/Idempotency/IdempotencyStore.cs` e `Shared/Models/IdempotencyRecord.cs`.
-- [ ] Remover tabela `idempotency_keys` do schema (criar migration `RemoveIdempotencyKeys` se a tabela ainda existia — senao pular).
-- [ ] Remover propriedade `IdempotencyKey` de `BaseCommand` e contratos derivados (ou remover o `BaseCommand` inteiro se ja nao for usado em MassTransit).
-- [ ] Grep por `TryGetAsync(` e `SaveAsync(` relacionados a idempotency — remover chamadas residuais.
-- [ ] Confirmar que a dedupe esta coberta pela dupla camada: saga correlation (state machine ignora eventos em estados invalidos) + Outbox `DuplicateDetectionWindow` (Fase 3).
+- [x] Apagar `Shared/Idempotency/IdempotencyStore.cs` e `Shared/Models/IdempotencyRecord.cs`.
+- [x] Remover tabela `idempotency_keys` do schema (criar migration `RemoveIdempotencyKeys` se a tabela ainda existia — senao pular). **Decisao:** tabela nunca foi criada (EnsureTableAsync nunca era chamado). Nenhuma migration necessaria.
+- [x] Remover propriedade `IdempotencyKey` de `BaseCommand` e contratos derivados (ou remover o `BaseCommand` inteiro se ja nao for usado em MassTransit). **Decisao:** removida apenas a propriedade `IdempotencyKey`; `BaseCommand` mantido pois 9 commands ativos ainda herdam `SagaId` e `Timestamp`.
+- [x] Grep por `TryGetAsync(` e `SaveAsync(` relacionados a idempotency — remover chamadas residuais.
+- [x] Confirmar que a dedupe esta coberta pela dupla camada: saga correlation (state machine ignora eventos em estados invalidos) + Outbox `DuplicateDetectionWindow` (Fase 3).
 
 ### Code review
 - `grep IdempotencyStore\|IdempotencyKey\|idempotency_keys` = 0 no src/.
